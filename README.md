@@ -18,6 +18,7 @@ Welcome to the MAKCM 2024 project! This is a new open-source implementation for 
   - 2MB PSRAM per MCU
 - **JSON Streaming for USB Descriptors**: All USB descriptors are easily accessible and followable via JSON streaming.
 - **Clean Codebase**: Built with a focus on maintainability and readability.
+- ** Espressif API ** The largest community based MCU team in the world!
 
 ## Roadmap
 
