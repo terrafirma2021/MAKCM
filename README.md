@@ -37,6 +37,10 @@ Welcome to the MAKCM 2024 project! This is a new open-source implementation for 
 - Continue to optimize the RTOS tasks for more efficient use.
 - Implement additional security measures.
 
+## updates
+
+- Merged both the devkit and the makcm project, to switch change board in platformio
+
 ## Community and Support
 
 Join our [Discord community](https://discord.gg/6TJBVtdZbq) to engage with other developers, share your experiences, and get support from the community.
