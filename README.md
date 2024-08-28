@@ -6,7 +6,7 @@
 Welcome to the MAKCM 2024 project! This is a new open-source implementation for remote injection of mouse control with passthrough, featuring dual ESP32-S3 microcontrollers based on RTOS and advanced task management over the traditional loop.
 
 ## MUST BE DONE!
-- To switch internal Phy to OTG disabling cdc/jtag on boot, please run the OTG bat file on the left port!
+- To switch internal Phy to OTG disabling cdc/jtag on boot, please run the OTG bat file on both the left, then the right mcu port!
 - To flash hold down boot button, then insert USB Cable
 - The bat file will enable automatic install of python
 - automatic install of the espidf python toolset
