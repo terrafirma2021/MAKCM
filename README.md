@@ -39,7 +39,40 @@ Welcome to the MAKCM 2024 project! This is a new open-source implementation for 
 
 ## Updates
 
-- Merged both the devkit and the makcm project, to switch change board in platformio
+### Left MCU:
+- Implemented 4-stage debug logging.
+- Both MCUs now share a COM port for debug logging.
+- Made right MCU COM port redundant on DIY dev kit.
+
+
+### General Changes:
+- Migrated to ISR Trigger for both UART0, UART1 (Hybrid Arduino/RTOS).
+- Removed `vTaskDelay(1)` on UART0 and UART1, enabling full-speed logging using interrupt triggers.
+- Verified and reduced task stack sizes (All tasks have a 500-byte high-water mark breathing space).
+- Added `volatile bool` + Mutex on `km.move` commands (COM will always override mouse at any time for better mouse feel).
+- Implemented button state logging:
+  - Ensures that if a button is already up/down, any other sends will be ignored.
+  - Results in better mouse feel and avoids random clicks.
+  - added commands to adjust com port speed at any time for cheats that support (115k-5mpbs) 
+
+### Code Improvements:
+- Migrated tasks to separate `.cpp` file for a cleaner look.
+- Tidied up `main.cpp`.
+- General formatting improvements.
+- Removed redundant code.
+
+### Right MCU:
+
+- Migrated ESPLOG to seperate log function to pass over uart1
+- Set LED to use a task of its own (reducing usb task by 1024 bytes)
+- Ongone: Fixed usb_host_transfer_free bug, sometimes API reponds invalid state (USB wont reconnect)
+- All tasks verified with high-water mark (all tasks have 500 breathing space)
+- general tidy up 
+
+## Simple Debug log tool in python
+- Run the tool follow the simple instuctions and get full debug log for any issues handling debive
+
+
 
 ## Community and Support
 
