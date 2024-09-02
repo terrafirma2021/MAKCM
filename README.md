@@ -42,7 +42,7 @@ Welcome to the MAKCM 2024 project! This is a new open-source implementation for 
 ### Left MCU:
 - Implemented 4-stage debug logging.
 - Both MCUs now share a COM port for debug logging.
-- Made right MCU COM port redundant on DIY dev kit.
+- Made bottom MCU COM port redundant on DIY dev kit.
 
 
 ### General Changes:
