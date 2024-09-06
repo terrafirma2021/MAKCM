@@ -16,6 +16,7 @@
 #define LOG_LEVEL_WARN  2
 #define LOG_LEVEL_ERROR 3
 #define LOG_LEVEL_DEBUG 4
+#define LOG_LEVEL_PARSED 5
 
 #define LOG_QUEUE_SIZE 20
 #define LOG_MESSAGE_SIZE 620
@@ -182,6 +183,17 @@ public:
         uint8_t iFunction;
     } descriptor_interface_association;
 
+ struct UsbConfigurationDescriptor {
+        uint8_t bLength;
+        uint8_t bDescriptorType;
+        uint16_t wTotalLength;
+        uint8_t bNumInterfaces;
+        uint8_t bConfigurationValue;
+        uint8_t iConfiguration;
+        uint8_t bmAttributes;
+        uint8_t bMaxPower;
+    } configurationDescriptor;
+
     #define MAX_UNKNOWN_DESCRIPTORS 10
 
     struct usb_unknown_descriptor_t {
@@ -233,6 +245,18 @@ public:
     virtual void onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons);
     virtual void onMouseMove(hid_mouse_report_t report);
     void rx_esp_serial0(void *command);
+
+    // log
+    void logRawBytes(const uint8_t* data, size_t length, const std::string& label);
+    void logHIDReportDescriptor(const HIDReportDescriptor &desc);
+    void logDeviceDescriptor(const usb_device_desc_t &dev_desc);
+    void logStringDescriptor(const usb_string_descriptor_t &str_desc);
+    void logInterfaceDescriptor(const usb_intf_desc_t &intf);
+    void logEndpointDescriptor(const usb_ep_desc_t &ep_desc);
+    void logInterfaceAssociationDescriptor(const usb_iad_desc_t &iad_desc);
+    void logHIDDescriptor(const tusb_hid_descriptor_hid_t &hid_desc);
+    void logConfigurationDescriptor(const UsbConfigurationDescriptor &config_desc);
+    void logUnknownDescriptor(const usb_standard_desc_t &desc);
 
     void sendDeviceInfo();
     void sendDescriptorDevice();
