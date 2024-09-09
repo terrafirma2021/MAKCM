@@ -110,7 +110,7 @@ class MAKCM_GUI:
             self.quit_button,
             self.log_button,
             self.control_button,
-            self.efuse_button,
+        #    self.efuse_button,
             self.open_log_button,
             self.browse_button,
             self.send_button
@@ -147,23 +147,21 @@ class MAKCM_GUI:
     def start_com_port_monitoring(self):
         """Starts a background thread to continuously scan COM ports."""
         def monitor_ports():
-            previous_ports = set(self.available_ports)  # Tracks the previously available ports
+            previous_ports = set(self.available_ports)
             while True:
-                # Scan available COM ports
                 current_ports = set(f"{port.description}" for port in serial.tools.list_ports.comports())
 
-                # Check if the current port list has changed
                 if current_ports != previous_ports:
                     self.available_ports = list(current_ports)
                     self.port_mapping = {port.description: port.device for port in serial.tools.list_ports.comports()}
 
-                    # Disable terminal printing for these informational messages
+
                     self.toggle_serial_printing(False)
 
-                    # Update combo box in the GUI thread without auto-connecting
+
                     self.root.after(0, self.update_com_port_combo)
 
-                    # Notify the user about the new ports without showing it in the terminal
+
                     if not self.is_connected:
                         if len(self.available_ports) == 1:
                             first_available_port = self.available_ports[0]
@@ -176,14 +174,13 @@ class MAKCM_GUI:
                                 self.terminal_print(f"New port detected: {new_port_description}. Please select and press 'Connect'.")
                                 self.com_port_combo.set(new_port_description)
 
-                    # Re-enable terminal printing
+
                     self.toggle_serial_printing(True)
 
                     previous_ports = current_ports
 
-                time.sleep(1)  # Adjust scan interval as needed
+                time.sleep(1)
 
-        # Start the monitoring thread
         monitoring_thread = threading.Thread(target=monitor_ports, daemon=True)
         monitoring_thread.start()
 
@@ -192,10 +189,8 @@ class MAKCM_GUI:
     def update_com_port_combo(self):
         """Updates the COM port combo box with the latest available ports."""
         if self.available_ports:
-            # Update the combo box with the new ports
             self.com_port_combo.configure(values=self.available_ports)
 
-            # Automatically select the first port if no manual selection
             if self.com_port_combo.get() not in self.available_ports:
                 self.com_port_combo.set(self.available_ports[0])
                 self.terminal_print(f"Automatically selected {self.available_ports[0]}.")
@@ -210,8 +205,8 @@ class MAKCM_GUI:
         self.available_ports = [f"{port.description}" for port in serial.tools.list_ports.comports()]
         self.port_mapping = {port.description: port.device for port in serial.tools.list_ports.comports()}
 
-        # Update the combo box to reflect the current status
-        self.com_port_combo.update_idletasks()  # Ensure the combo box gets updated immediately
+
+        self.com_port_combo.update_idletasks()
 
 
     def create_text_input(self):
@@ -232,9 +227,9 @@ class MAKCM_GUI:
         self.output_text.see(ctk.END)
 
     def toggle_serial_printing(self, enable: bool):
-        # Set the flag based on the argument passed
+
         self.print_serial_data = enable
-        # Inform the user whether printing is enabled or disabled
+
         status = "enabled" if enable else "disabled"
     #    self.terminal_print(f"Serial data printing {status}.")
 
@@ -242,11 +237,9 @@ class MAKCM_GUI:
     def terminal_print(self, *args, sep=" ", end="\n"):
         message = sep.join(map(str, args)) + end
 
-        # Default to printing to the terminal unless explicitly disabled
         if self.print_serial_data:
             self.append_to_terminal(message)
 
-        # Always log the message, regardless of terminal printing status
         self.log_queue.put(message.strip())
 
 
@@ -357,7 +350,7 @@ class MAKCM_GUI:
                     self.com_speed = baudrate
                     self.connect_button.configure(text="Disconnect")
                     self.com_port_combo.configure(state="disabled")
-                    self.terminal_print(f"Successfully connected to {self.com_port} at {baudrate} baud.")
+                #    self.terminal_print(f"Successfully connected to {self.com_port} at {baudrate} baud.")
                     threading.Thread(target=self.serial_communication_thread, daemon=True).start()
                     threading.Thread(target=self.monitor_com_port, daemon=True).start()
                     self.update_mcu_status()
@@ -443,11 +436,7 @@ class MAKCM_GUI:
             self.terminal_print("COM port is not set.")
             return
 
-        self.terminal_print(f"Flashing firmware on port {self.com_port} at {self.com_speed} baud.")
         self.terminal_print("Starting to flash now. Please wait for 10 seconds.")
-
-        # Disable terminal printing at the start of the flashing process
-        self.toggle_serial_printing(False)
 
         if self.is_connected:
             self.toggle_connection()  # Disconnect first
@@ -455,69 +444,63 @@ class MAKCM_GUI:
         time.sleep(0.5)
 
         try:
-            if self.serial_connection is not None and self.serial_connection.is_open:
-                self.terminal_print("Error: Serial port did not close properly.")
-                return
-            else:
-                self.terminal_print("Serial port successfully closed.")
-        except Exception as e:
-            self.terminal_print(f"Error checking serial port closure: {e}")
-            return
+            # Hide all output until we detect "Writing at"
+            self.toggle_serial_printing(False)
 
-        try:
             esptool_path = self.get_esptool_path()
+
+            # Normalize the BIN file path to ensure correct format (backslashes on Windows)
+            bin_path = os.path.normpath(self.BIN_Path)
+
+            # Create esptool arguments
             esptool_args = [
-                esptool_path, 
+                esptool_path,
                 '--port', self.com_port,
                 '--baud', str(self.com_speed),
-                'write_flash', '0x0', shlex.quote(self.BIN_Path)
+                'write_flash', '0x0', bin_path  # Use the normalized path
             ]
-
-            self.terminal_print(f"Running command: {' '.join(esptool_args)}")
 
             process = subprocess.Popen(
                 esptool_args,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True, 
+                text=True,
                 shell=True
             )
 
-            leaving_flag = False
-            found_compressed = False
+            found_writing = False
+            process_failed = False
 
             while True:
                 output = process.stdout.readline()
                 if output == '' and process.poll() is not None:
                     break
                 if output:
-                    # Turn on terminal printing once "Compressed" is detected
-                    if "Compressed" in output and not found_compressed:
-                        self.terminal_print("Starting the flashing process...")
-                        self.toggle_serial_printing(True)
-                        found_compressed = True
-
-                    if "Leaving..." in output:
-                        leaving_flag = True
-                    if not leaving_flag:
-                        # Log the output regardless of whether terminal printing is on or off
-                        self.log_queue.put(output.strip())
-
-                        # Print the output to the terminal if terminal printing is enabled
-                        if self.print_serial_data:
+                    # Check for the "Writing at" line to turn on serial printing
+                    if "Writing at" in output and not found_writing:
+                        self.toggle_serial_printing(True)  # Show progress starting with "Writing at"
+                        found_writing = True
+                        self.terminal_print(output.strip())
+                    elif found_writing:
+                        if "Leaving..." in output or "Hash of data verified" in output:
+                            self.toggle_serial_printing(False)  # Hide output after "Writing at"
+                        else:
                             self.terminal_print(output.strip())
+                    else:
+                        # Do nothing and hide all other output until writing starts
+                        pass
 
             stderr_output = process.stderr.read()
 
-            if process.returncode == 0 or process.returncode == 1:
-                self.terminal_print("Flash completed successfully!")
-            elif process.returncode == 2:
-                # Handle flashing failure with error code 2
-                self.toggle_serial_printing(True)  # Ensure printing is enabled
-                self.terminal_print("Flashing failed!")
-                self.terminal_print("Wrong boot mode detected, Please hold down the Button closest to the USB port and insert the USB cable. Then you will be fine :)")
-            else:
+            # Handle specific error codes, treat error code 1 as non-critical
+            if process.returncode == 1:
+                self.toggle_serial_printing(True)  # Unhide to show "Finished"
+                self.terminal_print("Finished.!! Another .ihack beast is unlocked!!!")  # Print finished even for return code 1
+            elif process.returncode != 0:
+                process_failed = True
+                self.toggle_serial_printing(True)  # Unhide on critical failure
                 self.terminal_print(f"Flashing failed with error code {process.returncode}.")
+                self.terminal_print("You need to use the outer USB port to flash firmware.")
                 if stderr_output:
                     self.terminal_print(f"Error output: {stderr_output.strip()}")
 
@@ -525,13 +508,14 @@ class MAKCM_GUI:
             self.terminal_print(f"Flashing error: {e}")
 
         finally:
-            # Ensure terminal printing is turned back on after the process completes
-            self.toggle_serial_printing(True)
-
+            if not process_failed:
+                self.toggle_serial_printing(True)
             # Reconnect after flashing
             self.toggle_connection()
             self.browse_button.configure(text="Flash", command=self.browse_file)
             self.FlashReady = False
+
+
 
 
     def quit_application(self):
@@ -768,7 +752,7 @@ class MAKCM_GUI:
 
                     time.sleep(0.1)
             except Exception as e:
-                self.terminal_print(f"Error reading from serial: {e}")
+        #        self.terminal_print(f"Error reading from serial: {e}")
                 break
 
 
