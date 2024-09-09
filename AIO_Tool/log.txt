@@ -1,0 +1,6 @@
+Log File Created
+Only one port detected: USB-Enhanced-SERIAL CH343 (COM24). Please press 'Connect' to proceed.
+No COM Ports Found. Please connect a device.
+Only one port detected: USB Serial Device (COM28). Please press 'Connect' to proceed.
+Automatically selected USB Serial Device (COM28).
+No COM Ports Found. Please connect a device.

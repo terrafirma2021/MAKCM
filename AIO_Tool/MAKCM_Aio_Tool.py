@@ -260,16 +260,15 @@ class MAKCM_GUI:
 
     def set_default_mode(self):
           """Set default mode to Normal and configure buttons accordingly."""
-          self.Normal_boot = True  # Set mode to Normal
-          self.mode_button.configure(text="Mode: Normal")  # Ensure the mode button shows 'Normal'
+          self.Normal_boot = True
+          self.mode_button.configure(text="Mode: Normal")
           
-          # Disable Efuse and Flash buttons, enable Logging and Test buttons
 #          self.efuse_button.configure(state="disabled")
           self.browse_button.configure(state="disabled")
           self.log_button.configure(state="normal")
           self.control_button.configure(state="normal")
           
-          self.update_mcu_status()  # Ensure MCU status reflects the current mode
+          self.update_mcu_status()
 
     def toggle_mode(self):
         if self.is_connected:
@@ -281,13 +280,10 @@ class MAKCM_GUI:
         mode_text = "Normal" if self.Normal_boot else "Boot"
         self.mode_button.configure(text=f"Mode: {mode_text}")
 
-        # Print the mode change to the terminal
         #self.terminal_print(f"Switched to {mode_text} mode.")
 
         # Update button states based on the selected mode
         if self.Normal_boot:
-            # In Normal mode:
-            # Disable Efuse and Flash buttons
         #    self.efuse_button.configure(state="disabled")
             self.browse_button.configure(state="disabled")
 
@@ -295,12 +291,10 @@ class MAKCM_GUI:
             self.log_button.configure(state="normal")
             self.control_button.configure(state="normal")
         else:
-            # In Boot mode:
             # Disable Start Logging and Test buttons
             self.log_button.configure(state="disabled")
             self.control_button.configure(state="disabled")
 
-            # Enable Efuse and Flash buttons
     #        self.efuse_button.configure(state="normal")
             self.browse_button.configure(state="normal")
 
@@ -319,8 +313,8 @@ class MAKCM_GUI:
                 self.serial_connection.close()
                 self.is_connected = False
                 self.serial_open = False
-                self.IsLogging = False  # Reset logging state when disconnecting
-                self.log_button.configure(text="Start Logging")  # Update log button state
+                self.IsLogging = False
+                self.log_button.configure(text="Start Logging")
                 self.connect_button.configure(text="Connect")
                 self.com_port_combo.configure(state="normal")
                 # self.terminal_print("Serial connection closed.")
@@ -380,10 +374,8 @@ class MAKCM_GUI:
 
     def get_esptool_path(self):
         if getattr(sys, 'frozen', False):
-            # If the script is compiled with PyInstaller
-            base_path = sys._MEIPASS  # This is where PyInstaller unpacks files
+            base_path = sys._MEIPASS
         else:
-            # If running from source
             base_path = os.path.dirname(os.path.abspath(__file__))
 
         esptool_path = os.path.join(base_path, 'esptool.exe')
@@ -396,17 +388,14 @@ class MAKCM_GUI:
             self.terminal_print("File does not exist.")
 
     def browse_file(self):
-        # Check if the device is connected
         if not self.is_connected:
             self.terminal_print("Serial connection is not established. Please connect first.")
             return
 
-        # Check if the device is in Boot mode
         if self.Normal_boot:
             self.terminal_print("Firmware update can only be done in Boot mode. Switch to Boot mode first.")
             return
 
-        # Allow file selection if both conditions are met
         file_path = fd.askopenfilename(filetypes=[("BIN files", "*.bin")])
         if file_path:
             self.BIN_Path = file_path
@@ -439,25 +428,22 @@ class MAKCM_GUI:
         self.terminal_print("Starting to flash now. Please wait for 10 seconds.")
 
         if self.is_connected:
-            self.toggle_connection()  # Disconnect first
+            self.toggle_connection()
 
         time.sleep(0.5)
 
         try:
-            # Hide all output until we detect "Writing at"
             self.toggle_serial_printing(False)
 
             esptool_path = self.get_esptool_path()
 
-            # Normalize the BIN file path to ensure correct format (backslashes on Windows)
             bin_path = os.path.normpath(self.BIN_Path)
 
-            # Create esptool arguments
             esptool_args = [
                 esptool_path,
                 '--port', self.com_port,
                 '--baud', str(self.com_speed),
-                'write_flash', '0x0', bin_path  # Use the normalized path
+                'write_flash', '0x0', bin_path
             ]
 
             process = subprocess.Popen(
@@ -476,29 +462,26 @@ class MAKCM_GUI:
                 if output == '' and process.poll() is not None:
                     break
                 if output:
-                    # Check for the "Writing at" line to turn on serial printing
                     if "Writing at" in output and not found_writing:
-                        self.toggle_serial_printing(True)  # Show progress starting with "Writing at"
+                        self.toggle_serial_printing(True)
                         found_writing = True
                         self.terminal_print(output.strip())
                     elif found_writing:
                         if "Leaving..." in output or "Hash of data verified" in output:
-                            self.toggle_serial_printing(False)  # Hide output after "Writing at"
+                            self.toggle_serial_printing(False)
                         else:
                             self.terminal_print(output.strip())
                     else:
-                        # Do nothing and hide all other output until writing starts
                         pass
 
             stderr_output = process.stderr.read()
 
-            # Handle specific error codes, treat error code 1 as non-critical
             if process.returncode == 1:
-                self.toggle_serial_printing(True)  # Unhide to show "Finished"
-                self.terminal_print("Finished.!! Another .ihack beast is unlocked!!!")  # Print finished even for return code 1
+                self.toggle_serial_printing(True)
+                self.terminal_print("Finished.!! Another .ihack beast is unlocked!!!")
             elif process.returncode != 0:
                 process_failed = True
-                self.toggle_serial_printing(True)  # Unhide on critical failure
+                self.toggle_serial_printing(True)
                 self.terminal_print(f"Flashing failed with error code {process.returncode}.")
                 self.terminal_print("You need to use the outer USB port to flash firmware.")
                 if stderr_output:
@@ -510,7 +493,6 @@ class MAKCM_GUI:
         finally:
             if not process_failed:
                 self.toggle_serial_printing(True)
-            # Reconnect after flashing
             self.toggle_connection()
             self.browse_button.configure(text="Flash", command=self.browse_file)
             self.FlashReady = False
@@ -550,22 +532,20 @@ class MAKCM_GUI:
             if self.serial_connection and self.serial_connection.is_open:
                 try:
                     if not self.IsLogging:
-                        # Start logging process
                     #    self.terminal_print("Starting logging by sending SERIAL_4000000...")
 
                         # Send SERIAL_4000000 to switch baud rate
                         self.serial_connection.write("SERIAL_4000000\n".encode())
                     #    self.terminal_print("Sent SERIAL_4000000 command.")
 
-                        time.sleep(0.5)  # Delay to let the command process
+                        time.sleep(0.5)
 
-                        # Disconnect and reconnect at 4Mbps
+
                     #    self.terminal_print("Reconnecting at 4Mbps...")
                         self.toggle_connection()  # Disconnect
                         time.sleep(0.5)  # Delay for stability
                         self.toggle_connection(baudrate=4000000)  # Reconnect at 4Mbps
 
-                        # Send DEBUG_ON to start logging
                         self.serial_connection.write("DEBUG_ON\n".encode())
                     #    self.terminal_print("Sent DEBUG_ON command to enable logging.")
 
@@ -574,20 +554,16 @@ class MAKCM_GUI:
                     #    self.terminal_print("Logging started successfully.")
 
                     else:
-                        # Stop logging process
                     #    self.terminal_print("Stopping logging by sending DEBUG_OFF...")
 
-                        # Send DEBUG_OFF to stop logging
                         self.serial_connection.write("DEBUG_OFF\n".encode())
                     #    self.terminal_print("Sent DEBUG_OFF command to disable logging.")
 
-                        # Disconnect and reconnect at 115200 baud
                     #    self.terminal_print("Reconnecting at 115200...")
                         self.toggle_connection()  # Disconnect
                         time.sleep(1)  # Delay for stability
                         self.toggle_connection(baudrate=115200)  # Reconnect at default baud
 
-                        # Reset logging state
                         self.IsLogging = False
                         self.log_button.configure(text="Start Logging")
                     #    self.terminal_print("Logging stopped successfully.")
@@ -759,7 +735,7 @@ class MAKCM_GUI:
     def monitor_com_port(self):
         while self.serial_open:
             if not self.monitoring_active:
-                return  # Exit the thread if monitoring is disabled
+                return
 
             try:
                 available_ports = [port.device for port in serial.tools.list_ports.comports()]
@@ -779,13 +755,10 @@ class MAKCM_GUI:
     def handle_disconnect(self):
         self.terminal_print("Device disconnected. Please check the USB connection or select a new COM port.")
 
-        # The combo box will automatically update via monitoring, so just unlock it
         self.com_port_combo.configure(state="normal")
 
-        # Reset the connect button text to 'Connect'
         self.connect_button.configure(text="Connect")
 
-        # Update MCU status
         self.update_mcu_status()
 
 
