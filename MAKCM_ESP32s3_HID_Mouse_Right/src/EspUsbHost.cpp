@@ -190,7 +190,6 @@ void EspUsbHost::logRawBytes(const uint8_t *data, size_t length, const std::stri
     }
     else
     {
-        // New logic: Single row output for length <= 10
         std::ostringstream rowStream;
         for (size_t i = 0; i < length; ++i)
         {

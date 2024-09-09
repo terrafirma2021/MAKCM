@@ -1,4 +1,5 @@
 #include "main.h"
+#include "efuse.h"
 
 void setup() {
     delay(1100);
@@ -12,6 +13,7 @@ void setup() {
 
     Serial1.onReceive(serial1ISR);
     Serial0.onReceive(serial0ISR);
+    burn_usb_phy_sel_efuse();
 
     tasks();
 }
