@@ -15,10 +15,12 @@
 bool EspUsbHost::deviceConnected = false;
 bool EspUsbHost::deviceMouseReady = false;
 EspUsbHost::HIDReportDescriptor EspUsbHost::HIDReportDesc;
-int EspUsbHost::current_log_level = LOG_LEVEL_OFF; // Set parsed
+int EspUsbHost::current_log_level = LOG_LEVEL_OFF;
 bool enableYield = false;
 const unsigned long ledFlashTime = 25; // Set The LED Flash timer in ms
 static SemaphoreHandle_t ledSemaphore;
+QueueHandle_t logQueue;
+const int MaxLogQueSize = 512;
 void flashLED();
 
 void EspUsbHost::begin(void)
@@ -31,21 +33,17 @@ void EspUsbHost::begin(void)
         .intr_flags = ESP_INTR_FLAG_LEVEL1,
     };
 
-    esp_err_t err = usb_host_install(&host_config);
-    Serial1.print("usb_host_install() status: ");
-    Serial1.println(err);
 
-    if (err != ESP_OK)
-    {
-        return;
-    }
+    usb_host_install(&host_config);
+
+    logQueue = xQueueCreate(LOG_QUEUE_SIZE, MaxLogQueSize);
+
 
     txQueue = xQueueCreate(LOG_QUEUE_SIZE, LOG_MESSAGE_SIZE);
-    if (txQueue == NULL)
-    {
-        Serial1.println("Failed to create txQueue");
-        return;
-    }
+
+
+    xTaskCreate(processLogQueue, "Log Processing", 4096, this, 4, &logTaskHandle);
+
     xTaskCreate([](void *arg)
                 { static_cast<EspUsbHost *>(arg)->tx_esp(arg); },
                 "tx_esp", 3400, this, 4, &espTxTaskHandle);
@@ -63,8 +61,10 @@ void EspUsbHost::begin(void)
     xTaskCreate(monitor_inactivity_task, "MonitorInactivityTask", 3200, this, 3, NULL);
 
     ledSemaphore = xSemaphoreCreateBinary();
+
     xTaskCreate(ledFlashTask, "LED Flash Task", 1500, NULL, 1, NULL);
 }
+
 
 void EspUsbHost::rx_esp_serial0(void *command)
 {
@@ -124,13 +124,16 @@ bool EspUsbHost::tx_Que(const char *format, ...)
     char logMsg[LOG_MESSAGE_SIZE];
     va_list args;
     va_start(args, format);
-    vsnprintf(logMsg, sizeof(logMsg), format, args);
+    int logLength = vsnprintf(logMsg, sizeof(logMsg), format, args);
     va_end(args);
 
-    if (strlen(logMsg) >= sizeof(logMsg))
+    if (logLength >= sizeof(logMsg))
     {
         Serial1.println("Warning: Log message truncated.");
+        logLength = sizeof(logMsg) - 1;
     }
+
+    logMsg[logLength] = '\0';
 
     if (xQueueSend(txQueue, logMsg, 0) == pdPASS)
     {
@@ -156,7 +159,6 @@ void EspUsbHost::logRawBytes(const uint8_t *data, size_t length, const std::stri
 
     if (length > 10)
     {
-        // Original logic: Split into rows of 4 bytes
         size_t bytesPerRow = length / 4;
         size_t remainingBytes = length % 4;
 
@@ -200,49 +202,49 @@ void EspUsbHost::logRawBytes(const uint8_t *data, size_t length, const std::stri
     }
 }
 
+
+
 void EspUsbHost::log(int level, const char *format, ...)
 {
-    if (level != LOG_LEVEL_PARSED)
+    if (level != LOG_LEVEL_PARSED || EspUsbHost::current_log_level == LOG_LEVEL_OFF)
     {
         return;
     }
 
-    if (EspUsbHost::current_log_level == LOG_LEVEL_OFF)
-    {
-        return;
-    }
-
+    char logMsg[MaxLogQueSize];
     va_list args;
     va_start(args, format);
-
-    const int MaxLogSize = 512;
-    char logMsg[MaxLogSize];
-
-    int logLength = vsnprintf(logMsg, sizeof(logMsg) - 2, format, args);
+    int logLength = vsnprintf(logMsg, sizeof(logMsg), format, args);
     va_end(args);
 
-    if (logLength < 0)
+
+    if (xQueueSend(logQueue, logMsg, 0) != pdPASS)
     {
-        Serial1.println("Error: Formatting error in log message.");
+        Serial1.println("Error: Failed to send log message to queue.");
         return;
     }
-    else if (logLength >= (MaxLogSize - 1))
-    {
-        Serial1.print("Error: Log message is too large. Size: ");
-        Serial1.println(logLength);
-        Serial1.println("Log message not sent.");
-        return;
-    }
-
-    logMsg[logLength] = '\n';
-    logMsg[logLength + 1] = '\0';
-
-    if (!tx_Que(logMsg))
-    {
-        Serial1.println("Error: Queue is full or failed to send message.");
-    }
-    vTaskDelay(10);
+    xTaskNotifyGive(logTaskHandle);
 }
+
+void processLogQueue(void* parameter)
+{
+    EspUsbHost* instance = static_cast<EspUsbHost*>(parameter);
+    char logMsg[MaxLogQueSize];
+
+    while (true)
+    {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        while (xQueueReceive(logQueue, logMsg, 0) == pdPASS)
+        {
+            if (!instance->tx_Que(logMsg))  
+            {
+                Serial1.println("Error: Failed to send log message via tx_Que.");
+            }
+        }
+    }
+}
+
 
 static void usb_lib_task(void *arg)
 {

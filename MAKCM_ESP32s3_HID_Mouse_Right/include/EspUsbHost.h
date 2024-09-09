@@ -24,6 +24,8 @@
 static void usb_lib_task(void *arg);
 static void usb_client_task(void *arg);
 void ledFlashTask(void *parameter);
+void processLogQueue(void* parameter);
+
 
 
 class EspUsbHost
@@ -43,6 +45,7 @@ public:
     QueueHandle_t txQueue;
     QueueHandle_t rxQueue;
     TaskHandle_t espTxTaskHandle;
+    TaskHandle_t logTaskHandle;
 
     bool deviceSuspended = false;
     static bool deviceConnected;

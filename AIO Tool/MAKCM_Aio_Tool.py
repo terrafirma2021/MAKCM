@@ -168,7 +168,7 @@ def find_target_com_port():
         print(f"Port: {port.device}, Description: {port.description}")
         if "CH343" in port.description:
             return port.device, "CH343"
-        elif "USB Serial Device" in port.description:
+        elif "USB Serial Device" in port.description or "USB JTAG/serial debug unit" in port.description:
             return port.device, "USB"
     return None, None
 
