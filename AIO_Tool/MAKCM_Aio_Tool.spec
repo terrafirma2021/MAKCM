@@ -5,7 +5,7 @@ a = Analysis(
     ['MAKCM_Aio_Tool.py'],
     pathex=[],
     binaries=[('esptool.exe', '.')],
-    datas=[],
+    datas=[('discord.png', '.'), ('github.png', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

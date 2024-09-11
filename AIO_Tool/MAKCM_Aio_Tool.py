@@ -11,6 +11,8 @@ import webbrowser
 import queue
 import sys
 import shlex
+from PIL import Image, ImageTk
+from PIL import Image
 
 class MAKCM_GUI:
     def __init__(self, root):
@@ -27,6 +29,7 @@ class MAKCM_GUI:
         self.BIN_Path = ""
         self.log_queue = queue.Queue()
         self.monitoring_active = True
+        self.theme_is_dark = True
 
         self.available_ports = []
         self.port_mapping = {}
@@ -34,11 +37,25 @@ class MAKCM_GUI:
         self.command_history = []
         self.history_position = -1
 
+
+        self.discord_icon_path = self.get_icon_path("Discord.png")
+        self.github_icon_path = self.get_icon_path("GitHub.png")
+
         threading.Thread(target=self.log_to_file, daemon=True).start()
         self.start_com_port_monitoring()
         self.setup_gui()
 
         self.set_default_mode()
+
+    
+    def get_icon_path(self, filename):
+        """Handle PyInstaller packed and script execution paths."""
+        if getattr(sys, 'frozen', False):
+            base_path = sys._MEIPASS
+        else:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+
+        return os.path.join(base_path, filename)
 
         
 
@@ -47,6 +64,8 @@ class MAKCM_GUI:
         self.root.geometry("800x600")
         self.root.resizable(True, True)
         self.root.protocol("WM_DELETE_WINDOW", self.quit_application)
+
+        self.create_icons()
 
         self.label_mcu = ctk.CTkLabel(self.root, text="MCU disconnected", text_color="blue")
         self.label_mcu.grid(row=0, column=0, padx=35, pady=5, sticky="w")
@@ -66,10 +85,60 @@ class MAKCM_GUI:
         else:
             self.com_port_combo.set("No COM Ports Found")
 
+    def create_icons(self, parent_frame=None):
+        """Load and display Discord and GitHub icons below the buttons, with hover rotation and click events."""
+
+        icon_size = (20, 20)
+
+        self.discord_image = Image.open(self.discord_icon_path).resize(icon_size)
+        self.github_image = Image.open(self.github_icon_path).resize(icon_size)
+
+        self.discord_icon = ImageTk.PhotoImage(self.discord_image)
+        self.github_icon = ImageTk.PhotoImage(self.github_image)
+
+        if parent_frame is None:
+            parent_frame = self.root
+
+        self.github_icon_label = ctk.CTkLabel(parent_frame, image=self.github_icon, text="")
+        self.github_icon_label.grid(row=5, column=0, padx=(70, 0), pady=10, sticky="w")
+        self.github_icon_label.bind("<Enter>", lambda event: self.animate_icon(self.github_icon_label, self.github_image, 360))
+        self.github_icon_label.bind("<Leave>", lambda event: self.animate_icon(self.github_icon_label, self.github_image, -360))
+        self.github_icon_label.bind("<Button-1>", lambda event: webbrowser.open("https://github.com/terrafirma2021/MAKCM"))
+
+        self.discord_icon_label = ctk.CTkLabel(parent_frame, image=self.discord_icon, text="")
+        self.discord_icon_label.grid(row=5, column=2, padx=(0, 70), pady=10, sticky="e")
+        self.discord_icon_label.bind("<Enter>", lambda event: self.animate_icon(self.discord_icon_label, self.discord_image, 360))
+        self.discord_icon_label.bind("<Leave>", lambda event: self.animate_icon(self.discord_icon_label, self.discord_image, -360))
+        self.discord_icon_label.bind("<Button-1>", lambda event: webbrowser.open("https://discord.gg/6TJBVtdZbq"))
+
+
+        self.discord_icon_label.image = self.discord_icon
+        self.github_icon_label.image = self.github_icon
+
+    def animate_icon(self, label, pil_image, angle, duration=1000):
+        """Animate the icon by rotating it over time."""
+        steps = 20  # Number of steps for the rotation
+        interval = duration // steps
+        angle_step = angle / steps 
+
+        def rotate_step(current_angle=0, step=0):
+            if step <= steps:
+  
+                rotated_image = pil_image.rotate(current_angle, expand=True)
+                rotated_image_ctk = ImageTk.PhotoImage(rotated_image)
+
+                label.configure(image=rotated_image_ctk)
+                label.image = rotated_image_ctk
+
+
+                self.root.after(interval, rotate_step, current_angle + angle_step, step + 1)
+
+        rotate_step()
+
     def create_buttons(self):
         button_width = 150
 
-        self.theme_button = ctk.CTkButton(self.root, text="Theme", command=self.change_theme, fg_color="transparent", width=button_width)
+        self.theme_button = ctk.CTkButton(self.root, text="Dark Mode", command=self.change_theme, fg_color="transparent", width=button_width)
         self.theme_button.grid(row=1, column=0, padx=5, pady=5, sticky="w")
 
         self.mode_button = ctk.CTkButton(self.root, text="Mode: Normal", command=self.toggle_mode, fg_color="transparent", width=button_width)
@@ -87,9 +156,6 @@ class MAKCM_GUI:
         self.control_button = ctk.CTkButton(self.root, text="Test", command=self.test_button_function, fg_color="transparent", width=button_width)
         self.control_button.grid(row=2, column=2, padx=5, pady=5, sticky="e")
 
-        #self.efuse_button = ctk.CTkButton(self.root, text="Efuse", command=self.efuse_burn, fg_color="transparent", width=button_width)
-        #self.efuse_button.grid(row=3, column=2, padx=5, pady=5, sticky="e")
-
         self.open_log_button = ctk.CTkButton(self.root, text="User Logs", command=self.open_log, fg_color="transparent", width=button_width)
         self.open_log_button.grid(row=3, column=2, padx=5, pady=5, sticky="e")
 
@@ -100,26 +166,52 @@ class MAKCM_GUI:
         self.send_button.grid(row=6, column=2, padx=5, pady=5, sticky="e")
 
     def change_theme(self):
-        random_fg_color = f"#{random.randint(0, 0xFFFFFF):06x}"
-        random_text_color = f"#{random.randint(0, 0xFFFFFF):06x}"
+        if self.theme_is_dark:
+            ctk.set_appearance_mode("light")
+            self.root.configure(bg="white")
 
-        button_list = [
-            self.theme_button,
-            self.mode_button,
-            self.connect_button,
-            self.quit_button,
-            self.log_button,
-            self.control_button,
-        #    self.efuse_button,
-            self.open_log_button,
-            self.browse_button,
-            self.send_button
-        ]
+            button_list = [
+                self.theme_button,
+                self.mode_button,
+                self.connect_button,
+                self.quit_button,
+                self.log_button,
+                self.control_button,
+                self.open_log_button,
+                self.browse_button,
+                self.send_button
+            ]
 
-        for button in button_list:
-            button.configure(fg_color=random_fg_color, text_color=random_text_color)
+            for button in button_list:
+                button.configure(fg_color="black", text_color="white")
 
-        self.label_mcu.configure(text_color=random_text_color)
+            self.label_mcu.configure(text_color="black")
+            self.theme_button.configure(text="Light Mode")
+
+        else:
+            ctk.set_appearance_mode("dark")
+            self.root.configure(bg="#2b2b2b")
+
+            button_list = [
+                self.theme_button,
+                self.mode_button,
+                self.connect_button,
+                self.quit_button,
+                self.log_button,
+                self.control_button,
+                self.open_log_button,
+                self.browse_button,
+                self.send_button
+            ]
+
+            for button in button_list:
+                button.configure(fg_color="gray", text_color="white")
+
+            self.label_mcu.configure(text_color="blue")
+            self.theme_button.configure(text="Dark Mode")
+
+        self.theme_is_dark = not self.theme_is_dark
+
 
 
     def create_com_port_section(self):
@@ -478,7 +570,7 @@ class MAKCM_GUI:
 
             if process.returncode == 1:
                 self.toggle_serial_printing(True)
-                self.terminal_print("Finished.!! Another .ihack beast is unlocked!!!")
+                self.terminal_print("Another .ihack beast is unlocked!!!")
             elif process.returncode != 0:
                 process_failed = True
                 self.toggle_serial_printing(True)
@@ -492,10 +584,11 @@ class MAKCM_GUI:
 
         finally:
             if not process_failed:
-                self.toggle_serial_printing(True)
+                self.terminal_print("Finished!")
             self.toggle_connection()
             self.browse_button.configure(text="Flash", command=self.browse_file)
             self.FlashReady = False
+
 
 
 
