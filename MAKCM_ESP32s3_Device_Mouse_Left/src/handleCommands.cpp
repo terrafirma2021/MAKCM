@@ -9,6 +9,7 @@
 #include <cstring>
 #include <atomic>
 #include <mutex>
+#include <RingBuf.h>
 
 // Atomic variables for mouse movement and button states
 std::atomic<int> moveX(0);
@@ -19,6 +20,7 @@ std::atomic<bool> isMiddleButtonPressed(false);
 std::atomic<bool> isForwardButtonPressed(false);
 std::atomic<bool> isBackwardButtonPressed(false);
 std::atomic<bool> serial0Locked(true);
+std::atomic<bool> kmMoveCom(false);
 
 // Task handles
 extern TaskHandle_t mouseMoveTaskHandle;
@@ -29,13 +31,13 @@ std::mutex commandMutex;
 volatile bool deviceConnected = false;
 bool usbReady = false;
 bool processingUsbCommands = false;
-std::atomic<bool> kmMoveCom(false);
 
+
+// Create the ring buffers
+void processRingBufferCommand(RingBuf<char, 620> &buffer);
+RingBuf<char, 620> serial0RingBuffer;
+RingBuf<char, 620> serial1RingBuffer;
 int currentCommandIndex = 0;
-char serial0Buffer[MAX_SERIAL0_COMMAND_LENGTH];
-char serial1Buffer[MAX_SERIAL1_COMMAND_LENGTH];
-int serial0BufferIndex = 0;
-int serial1BufferIndex = 0;
 
 int16_t mouseX = 0;
 int16_t mouseY = 0;
@@ -61,7 +63,9 @@ CommandEntry serial0CommandTable[] = {
 };
 
 CommandEntry debugCommandTable[] = {
-    {"ESPLOG_", handleEspLog}
+    {"ESPLOG_", handleEspLog},
+    {"PRINT_Parsed_Descriptors", printParsedDescriptors},
+    {"HID_Descriptors", [](const char* arg) { Serial1.print(arg); }}
 };
 
 CommandEntry normalCommandTable[] = {
@@ -97,29 +101,49 @@ CommandEntry usbCommandTable[] = {
 
 void processCommand(const char *command);
 
+void trimCommand(char* command) {
+    int len = strlen(command);
+    while (len > 0 && (command[len - 1] == ' ' || command[len - 1] == '\n' || command[len - 1] == '\r')) {
+        command[len - 1] = '\0';
+        len--;
+    }
+}
+
 void serial0RX() {
     while (Serial0.available() > 0) {
         char byte = Serial0.read();
+
         if (byte == '\r') {
             continue;
         }
-        if (byte == '\n') {
-            if (serial0BufferIndex > 0) {
-                serial0Buffer[serial0BufferIndex] = '\0';
-                if (serial0BufferIndex <= MAX_KM_MOVE_COMMAND_LENGTH && strncmp(serial0Buffer, "km.move", 7) == 0) {
-                    kmMoveCom = true;
-                    handleKmMoveCommand(serial0Buffer);
-                } else {
-                    processCommand(serial0Buffer);
-                }
-                serial0BufferIndex = 0;
-                notifyLedFlashTask();
-            }
-        } else if (serial0BufferIndex < MAX_SERIAL0_COMMAND_LENGTH - 1) {
-            serial0Buffer[serial0BufferIndex++] = byte;
+
+        if (!serial0RingBuffer.isFull()) {
+            serial0RingBuffer.push(byte);
         } else {
-            serial0BufferIndex = 0;
-            Serial.println("Serial0 buffer overflow detected, clearing buffer.");
+            Serial0.println("Serial0 ring buffer overflow detected.");
+        }
+
+        if (byte == '\n') {
+            char commandBuffer[620];
+            int commandIndex = 0;
+
+            while (!serial0RingBuffer.isEmpty() && commandIndex < sizeof(commandBuffer) - 1) {
+                serial0RingBuffer.pop(commandBuffer[commandIndex++]);
+            }
+
+            commandBuffer[commandIndex] = '\0';
+
+            // Trim the command
+            trimCommand(commandBuffer);
+
+            if (strncmp(commandBuffer, "km.move", 7) == 0) {
+                if (!kmMoveCom) {
+                    kmMoveCom = true;
+                    handleKmMoveCommand(commandBuffer);
+                }
+            } else {
+                processCommand(commandBuffer);
+            }
         }
     }
 }
@@ -127,41 +151,88 @@ void serial0RX() {
 void serial1RX() {
     while (Serial1.available() > 0) {
         char byte = Serial1.read();
+
         if (byte == '\r') {
             continue;
         }
-        if (byte == '\n') {
-            if (serial1BufferIndex > 0) {
-                serial1Buffer[serial1BufferIndex] = '\0';
-                if (serial1BufferIndex <= MAX_KM_MOVE_COMMAND_LENGTH && strncmp(serial1Buffer, "km.move", 7) == 0) {
-                    if (!kmMoveCom) {
-                        handleKmMoveCommand(serial1Buffer);
-                    }
-                } else {
-                    processCommand(serial1Buffer);
-                }
-                serial1BufferIndex = 0;
-            }
-        } else if (serial1BufferIndex < MAX_SERIAL1_COMMAND_LENGTH - 1) {
-            serial1Buffer[serial1BufferIndex++] = byte;
+
+        if (!serial1RingBuffer.isFull()) {
+            serial1RingBuffer.push(byte);
         } else {
-            serial1BufferIndex = 0;
-            Serial.println("Serial1 buffer overflow detected, clearing buffer.");
+            Serial0.println("Serial1 ring buffer overflow detected.");
+        }
+
+        if (byte == '\n') {
+            char commandBuffer[620];
+            int commandIndex = 0;
+
+            while (!serial1RingBuffer.isEmpty() && commandIndex < sizeof(commandBuffer) - 1) {
+                serial1RingBuffer.pop(commandBuffer[commandIndex++]);
+            }
+
+            commandBuffer[commandIndex] = '\0';
+
+            // Trim the command
+            trimCommand(commandBuffer);
+
+            if (strncmp(commandBuffer, "km.move", 7) == 0 && !kmMoveCom) {
+                handleKmMoveCommand(commandBuffer);
+            } else {
+                processCommand(commandBuffer);
+            }
         }
     }
 }
 
+
+
+void processRingBufferCommand(RingBuf<char, 620> &buffer) {
+    char commandBuffer[620];
+    int commandIndex = 0;
+    char byte;
+
+    while (!buffer.isEmpty()) {
+        buffer.pop(byte);
+        
+        Serial0.print("Popped Byte: '");
+        Serial0.print(byte);
+        Serial0.print("' (ASCII: ");
+        Serial0.print((int)byte); 
+       
+        if (byte == '\n' || commandIndex >= 620 - 1) {
+            break;
+        }
+
+        commandBuffer[commandIndex++] = byte;
+    }
+
+    commandBuffer[commandIndex] = '\0'; 
+    trimCommand(commandBuffer);
+    
+    Serial0.print("Full Command: ");
+    Serial0.println(commandBuffer);
+
+    if (commandIndex > 0) {
+        processCommand(commandBuffer);
+    }
+}
+
+
 void handleKmMoveCommand(const char *command) {
     int x, y;
+
     sscanf(command + strlen("km.move") + 1, "%d,%d", &x, &y);
+
     {
         std::lock_guard<std::mutex> lock(commandMutex);
         moveX = x;
         moveY = y;
     }
+
     if (mouseMoveTaskHandle != NULL) {
         xTaskNotifyGive(mouseMoveTaskHandle);
     }
+
     kmMoveCom = false;
 }
 
@@ -218,24 +289,28 @@ void sendNextCommand() {
 }
 
 void processCommand(const char *command) {
+ 
     for (const auto &entry : debugCommandTable) {
         if (strncmp(command, entry.command, strlen(entry.command)) == 0) {
             entry.handler(command);
             return;
         }
     }
+
     for (const auto &entry : serial0CommandTable) {
         if (strncmp(command, entry.command, strlen(entry.command)) == 0) {
             entry.handler(command);
             return;
         }
     }
+
     for (const auto &entry : usbCommandTable) {
         if (strncmp(command, entry.command, strlen(entry.command)) == 0) {
             entry.handler(command);
             return;
         }
     }
+
     if (!processingUsbCommands) {
         for (const auto &entry : normalCommandTable) {
             if (strncmp(command, entry.command, strlen(entry.command)) == 0) {
@@ -244,8 +319,10 @@ void processCommand(const char *command) {
             }
         }
     }
+
     handleDebugcommand(command);
 }
+
 
 void handleEspLog(const char *command) {
     const char *message = command + strlen("ESPLOG_");
@@ -284,13 +361,22 @@ void handleDebug(const char *command) {
     } else if (sscanf(command + strlen("DEBUG_"), "%d", &debugLevel) == 1) {
         Serial1.println(command);
     } else {
-        Serial0.println("Invalid DEBUG command.");
+        Serial0.println("Invalid DEBUG command. Bytes received:");
+        for (int i = 0; i < strlen(command); i++) {
+            Serial0.print("Byte ");
+            Serial0.print(i);
+            Serial0.print(": '");
+            Serial0.print(command[i]); 
+            Serial0.print("' (ASCII: ");
+            Serial0.print((int)command[i]);
+            Serial0.println(")");
+        }
     }
 }
 
+
 void handleDebugcommand(const char *command) {
-    Serial0.print("Right MCU : ");
-    Serial0.print(command);
+    Serial0.println(command);
 }
 
 void handleNoDevice(const char *command)
@@ -309,12 +395,6 @@ void mouseMoveTask(void *pvParameters) {
         }
         handleMove(x, y);
     }
-}
-
-void handleKmMove(const char *command) {
-    int x, y;
-    sscanf(command + strlen("km.move") + 1, "%d,%d", &x, &y);
-    handleMove(x, y);
 }
 
 void handleKmMoveto(const char *command) {

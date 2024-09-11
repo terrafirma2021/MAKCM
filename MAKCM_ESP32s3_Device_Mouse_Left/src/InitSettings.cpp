@@ -65,7 +65,10 @@ void receiveDeviceInfo(const char *command)
     DeserializationError error = deserializeJson(doc, jsonString);
     if (error)
     {
-        Serial0.print(F("Deserialization failed\n"));
+        Serial0.print(F("Deserialization failed:\n"));
+        Serial0.println(error.c_str());
+        Serial0.print(F("Failed JSON string:\n"));
+        Serial0.println(jsonString);
         return;
     }
 
@@ -122,12 +125,13 @@ void receiveDescriptorDevice(const char *command)
     }
 
     JsonDocument doc;
-
     DeserializationError error = deserializeJson(doc, jsonString);
     if (error)
     {
         Serial0.print(F("Deserialization failed:\n"));
         Serial0.println(error.c_str());
+        Serial0.print(F("Failed JSON string:\n"));
+        Serial0.println(jsonString);
         return;
     }
 
@@ -189,7 +193,10 @@ void receiveEndpointDescriptors(const char *command)
     DeserializationError error = deserializeJson(doc, jsonString);
     if (error)
     {
-        Serial0.print(F("Deserialization failed\n"));
+        Serial0.print(F("Deserialization failed:\n"));
+        Serial0.println(error.c_str());
+        Serial0.print(F("Failed JSON string:\n"));
+        Serial0.println(jsonString);
         return;
     }
 
@@ -255,7 +262,10 @@ void receiveInterfaceDescriptors(const char *command)
     DeserializationError error = deserializeJson(doc, jsonString);
     if (error)
     {
-        Serial0.print(F("Deserialization failed\n"));
+        Serial0.print(F("Deserialization failed:\n"));
+        Serial0.println(error.c_str());
+        Serial0.print(F("Failed JSON string:\n"));
+        Serial0.println(jsonString);
         return;
     }
 
@@ -276,7 +286,7 @@ void receiveInterfaceDescriptors(const char *command)
             interfaceCounter++;
         }
     }
-    //   printInterfaceDescriptors();
+    // printInterfaceDescriptors();
     sendNextCommand();
 }
 
@@ -317,7 +327,10 @@ void receiveHidDescriptors(const char *command)
     DeserializationError error = deserializeJson(doc, jsonString);
     if (error)
     {
-        Serial0.print(F("Deserialization failed\n"));
+        Serial0.print(F("Deserialization failed:\n"));
+        Serial0.println(error.c_str());
+        Serial0.print(F("Failed JSON string:\n"));
+        Serial0.println(jsonString);
         return;
     }
 
@@ -336,7 +349,7 @@ void receiveHidDescriptors(const char *command)
             hidDescriptorCounter++;
         }
     }
-    //   printHidDescriptors();
+    // printHidDescriptors();
     sendNextCommand();
 }
 
@@ -374,7 +387,10 @@ void receiveIADescriptors(const char *command)
     DeserializationError error = deserializeJson(doc, jsonString);
     if (error)
     {
-        Serial0.print(F("Deserialization failed\n"));
+        Serial0.print(F("Deserialization failed:\n"));
+        Serial0.println(error.c_str());
+        Serial0.print(F("Failed JSON string:\n"));
+        Serial0.println(jsonString);
         return;
     }
 
@@ -386,7 +402,7 @@ void receiveIADescriptors(const char *command)
     descriptor_interface_association.bFunctionSubClass = doc["bFunctionSubClass"];
     descriptor_interface_association.bFunctionProtocol = doc["bFunctionProtocol"];
     descriptor_interface_association.iFunction = doc["iFunction"];
-    //   printIADescriptor();
+    // printIADescriptor();
     sendNextCommand();
 }
 
@@ -425,7 +441,10 @@ void receiveEndpointData(const char *command)
     DeserializationError error = deserializeJson(doc, jsonString);
     if (error)
     {
-        Serial0.print(F("Deserialization failed\n"));
+        Serial0.print(F("Deserialization failed:\n"));
+        Serial0.println(error.c_str());
+        Serial0.print(F("Failed JSON string:\n"));
+        Serial0.println(jsonString);
         return;
     }
 
@@ -443,7 +462,7 @@ void receiveEndpointData(const char *command)
             index++;
         }
     }
-    //   printEndpointData();
+    // printEndpointData();
     sendNextCommand();
 }
 
@@ -476,7 +495,10 @@ void receiveUnknownDescriptors(const char *command)
     DeserializationError error = deserializeJson(doc, jsonString);
     if (error)
     {
-        Serial0.print(F("Deserialization failed\n"));
+        Serial0.print(F("Deserialization failed:\n"));
+        Serial0.println(error.c_str());
+        Serial0.print(F("Failed JSON string:\n"));
+        Serial0.println(jsonString);
         return;
     }
 
@@ -491,7 +513,7 @@ void receiveUnknownDescriptors(const char *command)
             unknownDescriptorCounter++;
         }
     }
-    //   printUnknownDescriptors();
+    // printUnknownDescriptors();
     sendNextCommand();
 }
 
@@ -523,13 +545,15 @@ void receivedescriptorConfiguration(const char *command)
         Serial0.print(F("Invalid JSON string\n"));
         return;
     }
+    
     JsonDocument doc;
-
     DeserializationError error = deserializeJson(doc, jsonString);
     if (error)
     {
-        Serial0.print(F("Deserialization failed: "));
+        Serial0.print(F("Deserialization failed:\n"));
         Serial0.println(error.c_str());
+        Serial0.print(F("Failed JSON string:\n"));
+        Serial0.println(jsonString);
         return;
     }
 
@@ -544,4 +568,41 @@ void receivedescriptorConfiguration(const char *command)
 
     // printDescriptorConfiguration();
     sendNextCommand();
+}
+
+void printParsedDescriptors(const char *command)
+{
+    Serial0.println("\n**** printDeviceInfo ****");
+    printDeviceInfo();
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    Serial0.println("\n**** printDescriptorDevice ****");
+    printDescriptorDevice();
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    Serial0.println("\n**** printEndpointDescriptors ****");
+    printEndpointDescriptors();
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    Serial0.println("\n**** printInterfaceDescriptors ****");
+    printInterfaceDescriptors();
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    Serial0.println("\n**** printHidDescriptors ****");
+    printHidDescriptors();
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    Serial0.println("\n**** printIADescriptor ****");
+    printIADescriptor();
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    Serial0.println("\n**** printEndpointData ****");
+    printEndpointData();
+
+    Serial0.println("\n**** printUnknownDescriptors ****");
+    printUnknownDescriptors();
+
+    Serial0.println("\n**** printDescriptorConfiguration ****");
+    printDescriptorConfiguration();
+    vTaskDelay(pdMS_TO_TICKS(10));
 }

@@ -13,7 +13,7 @@ TaskHandle_t ledFlashTaskHandle = NULL;
 void tasks() {
     BaseType_t xReturned;
 
-xReturned = xTaskCreate(serial1Task, "Serial1Task", 2500, NULL, 1, &serial1TaskHandle);
+xReturned = xTaskCreate(serial1Task, "Serial1Task", 4096, NULL, 1, &serial1TaskHandle);
 if (xReturned != pdPASS) {
     Serial0.println("Failed to create Serial1Task");
 }

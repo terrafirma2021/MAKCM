@@ -11,20 +11,26 @@
 #include "freertos/queue.h"
 #include <cstring>
 #include <ArduinoJson.h>
-#define LOG_LEVEL_OFF   0
-#define LOG_LEVEL_INFO  1
-#define LOG_LEVEL_WARN  2
-#define LOG_LEVEL_ERROR 3
-#define LOG_LEVEL_DEBUG 4
-#define LOG_LEVEL_PARSED 5
+#define LOG_LEVEL_OFF    0
+#define LOG_LEVEL_FIXED  1
+#define LOG_LEVEL_INFO   2
+#define LOG_LEVEL_WARN   3
+#define LOG_LEVEL_ERROR  4
+#define LOG_LEVEL_DEBUG  5
+#define LOG_LEVEL_PARSED 6
 
 #define LOG_QUEUE_SIZE 20
 #define LOG_MESSAGE_SIZE 620
 
-static void usb_lib_task(void *arg);
-static void usb_client_task(void *arg);
+void usb_lib_task(void *arg);
+void usb_client_task(void *arg);
 void ledFlashTask(void *parameter);
 void processLogQueue(void* parameter);
+extern QueueHandle_t logQueue;
+//extern int current_log_level;
+//extern bool deviceMouseReady;
+extern const int MaxLogQueSize;
+extern SemaphoreHandle_t ledSemaphore;
 
 
 
@@ -34,10 +40,8 @@ public:
     // Debug and Log
     bool debugModeActive = false;
     void log(int level, const char *format, ...);
-    static int current_log_level;
-
-
     bool isReady = false;
+    static int current_log_level;
     static bool deviceMouseReady;
     //static bool noDevice;
     uint8_t interval;
@@ -271,6 +275,10 @@ public:
     void sendUnknownDescriptors();
     void sendDescriptorconfig();
     void handleIncomingCommands(const String &command);
+
+    // Tasks
+    void initializeTasks();
+    
 };
 
 #endif

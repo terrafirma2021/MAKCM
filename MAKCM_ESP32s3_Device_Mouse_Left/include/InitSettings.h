@@ -10,6 +10,7 @@
 
 // Function declarations
 extern void sendNextCommand();
+extern void printParsedDescriptors(const char* command);
 
 // Struct definitions
 struct DeviceInfo {

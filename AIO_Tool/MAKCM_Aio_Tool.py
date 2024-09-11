@@ -31,12 +31,12 @@ class MAKCM_GUI:
         self.monitoring_active = True
         self.theme_is_dark = True
 
+        self.tooltip_label = None
         self.available_ports = []
         self.port_mapping = {}
 
         self.command_history = []
         self.history_position = -1
-
 
         self.discord_icon_path = self.get_icon_path("Discord.png")
         self.github_icon_path = self.get_icon_path("GitHub.png")
@@ -47,7 +47,25 @@ class MAKCM_GUI:
 
         self.set_default_mode()
 
-    
+    def create_tooltip(self, widget, text):
+        """Create a tooltip that appears in the middle of row 0 when hovering over a widget."""
+        def show_tooltip(_):
+            if self.tooltip_label:
+                self.tooltip_label.destroy()
+
+            self.tooltip_label = ctk.CTkLabel(self.root, text=text)
+            window_width = self.root.winfo_width()
+            self.tooltip_label.place(x=window_width // 2, y=5, anchor="n")
+
+        def hide_tooltip(_):
+            if self.tooltip_label:
+                self.tooltip_label.destroy()
+                self.tooltip_label = None
+
+        widget.bind("<Enter>", show_tooltip)
+        widget.bind("<Leave>", hide_tooltip)
+
+
     def get_icon_path(self, filename):
         """Handle PyInstaller packed and script execution paths."""
         if getattr(sys, 'frozen', False):
@@ -60,30 +78,30 @@ class MAKCM_GUI:
         
 
     def setup_gui(self):
-        self.root.title("MAKCM v1.1")
-        self.root.geometry("800x600")
-        self.root.resizable(True, True)
-        self.root.protocol("WM_DELETE_WINDOW", self.quit_application)
-
-        self.create_icons()
-
-        self.label_mcu = ctk.CTkLabel(self.root, text="MCU disconnected", text_color="blue")
-        self.label_mcu.grid(row=0, column=0, padx=35, pady=5, sticky="w")
-
-        self.create_buttons()
-        self.create_com_port_section()
-        self.create_text_input()
-        self.create_output_box()
-
-        self.root.grid_columnconfigure(0, weight=1)
-        self.root.grid_columnconfigure(1, weight=1)
-        self.root.grid_columnconfigure(2, weight=0)
-        self.root.grid_rowconfigure(7, weight=1)
-        self.scan_com_ports()
-        if self.available_ports:
-            self.com_port_combo.set(self.available_ports[0])
-        else:
-            self.com_port_combo.set("No COM Ports Found")
+         self.root.title("MAKCM v1.1")
+         self.root.geometry("800x600")
+         self.root.resizable(True, True)
+         self.root.protocol("WM_DELETE_WINDOW", self.quit_application)
+ 
+         self.create_icons()
+ 
+         self.label_mcu = ctk.CTkLabel(self.root, text="MCU disconnected", text_color="blue")
+         self.label_mcu.grid(row=0, column=0, padx=35, pady=5, sticky="w")
+ 
+         self.create_buttons()
+         self.create_com_port_section()
+         self.create_text_input()
+         self.create_output_box()
+ 
+         self.root.grid_columnconfigure(0, weight=1)
+         self.root.grid_columnconfigure(1, weight=1)
+         self.root.grid_columnconfigure(2, weight=0)
+         self.root.grid_rowconfigure(7, weight=1)
+         self.scan_com_ports()
+         if self.available_ports:
+             self.com_port_combo.set(self.available_ports[0])
+         else:
+             self.com_port_combo.set("No COM Ports Found")
 
     def create_icons(self, parent_frame=None):
         """Load and display Discord and GitHub icons below the buttons, with hover rotation and click events."""
@@ -140,30 +158,40 @@ class MAKCM_GUI:
 
         self.theme_button = ctk.CTkButton(self.root, text="Dark Mode", command=self.change_theme, fg_color="transparent", width=button_width)
         self.theme_button.grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.create_tooltip(self.theme_button, "Sets colour change.")
 
-        self.mode_button = ctk.CTkButton(self.root, text="Mode: Normal", command=self.toggle_mode, fg_color="transparent", width=button_width)
+        self.mode_button = ctk.CTkButton(self.root, text="Mode: Comm", command=self.toggle_mode, fg_color="transparent", width=button_width)
         self.mode_button.grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        self.create_tooltip(self.mode_button, "To flash firmware, you need Flash. Other functions need Comm mode.")
 
         self.connect_button = ctk.CTkButton(self.root, text="Connect", command=self.toggle_connection, fg_color="transparent", width=button_width)
         self.connect_button.grid(row=3, column=0, padx=5, pady=5, sticky="w")
+        self.create_tooltip(self.connect_button, "Will sync the tool to the MCU.")
 
         self.quit_button = ctk.CTkButton(self.root, text="Quit", command=self.quit_application, fg_color="transparent", width=button_width)
         self.quit_button.grid(row=4, column=0, padx=5, pady=5, sticky="w")
+        self.create_tooltip(self.quit_button, "Safe shut down to restart the MCUs.")
 
         self.log_button = ctk.CTkButton(self.root, text="Start Logging", command=self.toggle_logging, fg_color="transparent", width=button_width)
         self.log_button.grid(row=1, column=2, padx=5, pady=5, sticky="e")
+        self.create_tooltip(self.log_button, "Used if you have a problem, produces a log file for support.")
 
         self.control_button = ctk.CTkButton(self.root, text="Test", command=self.test_button_function, fg_color="transparent", width=button_width)
         self.control_button.grid(row=2, column=2, padx=5, pady=5, sticky="e")
+        self.create_tooltip(self.control_button, "Test: Simple mouse nudge test.")
 
         self.open_log_button = ctk.CTkButton(self.root, text="User Logs", command=self.open_log, fg_color="transparent", width=button_width)
         self.open_log_button.grid(row=3, column=2, padx=5, pady=5, sticky="e")
+        self.create_tooltip(self.open_log_button, "Submit the file if requested for support.")
 
         self.browse_button = ctk.CTkButton(self.root, text="Flash", command=self.browse_file, fg_color="transparent", width=button_width)
         self.browse_button.grid(row=4, column=2, padx=5, pady=5, sticky="e")
+        self.create_tooltip(self.browse_button, "Hold the nearest button and insert usb, dont let go of button untill you connect!")
 
         self.send_button = ctk.CTkButton(self.root, text="Send", command=self.send_input, fg_color="transparent", width=button_width, height=35)
         self.send_button.grid(row=6, column=2, padx=5, pady=5, sticky="e")
+        self.create_tooltip(self.send_button, "For quick commands like echo testing.")
+
 
     def change_theme(self):
         if self.theme_is_dark:
@@ -350,47 +378,36 @@ class MAKCM_GUI:
 
 
 
-    def set_default_mode(self):
-          """Set default mode to Normal and configure buttons accordingly."""
-          self.Normal_boot = True
-          self.mode_button.configure(text="Mode: Normal")
-          
-#          self.efuse_button.configure(state="disabled")
-          self.browse_button.configure(state="disabled")
-          self.log_button.configure(state="normal")
-          self.control_button.configure(state="normal")
-          
-          self.update_mcu_status()
-
     def toggle_mode(self):
         if self.is_connected:
             self.terminal_print("Cannot switch mode while connected. Disconnect first.")
             return  
 
-        # Toggle between Normal and Boot mode
         self.Normal_boot = not self.Normal_boot
-        mode_text = "Normal" if self.Normal_boot else "Boot"
+        mode_text = "Comm" if self.Normal_boot else "Flash"
         self.mode_button.configure(text=f"Mode: {mode_text}")
 
-        #self.terminal_print(f"Switched to {mode_text} mode.")
-
-        # Update button states based on the selected mode
         if self.Normal_boot:
-        #    self.efuse_button.configure(state="disabled")
             self.browse_button.configure(state="disabled")
-
-            # Enable Start Logging and Test buttons
             self.log_button.configure(state="normal")
             self.control_button.configure(state="normal")
         else:
-            # Disable Start Logging and Test buttons
             self.log_button.configure(state="disabled")
             self.control_button.configure(state="disabled")
-
-    #        self.efuse_button.configure(state="normal")
             self.browse_button.configure(state="normal")
 
         self.update_mcu_status()
+
+
+    def set_default_mode(self):
+        """Set default mode to Comm and configure buttons accordingly."""
+        self.Normal_boot = True
+        self.mode_button.configure(text="Mode: Comm")
+        self.browse_button.configure(state="disabled")
+        self.log_button.configure(state="normal")
+        self.control_button.configure(state="normal")
+        self.update_mcu_status()
+
 
 
 
@@ -626,8 +643,6 @@ class MAKCM_GUI:
                 try:
                     if not self.IsLogging:
                     #    self.terminal_print("Starting logging by sending SERIAL_4000000...")
-
-                        # Send SERIAL_4000000 to switch baud rate
                         self.serial_connection.write("SERIAL_4000000\n".encode())
                     #    self.terminal_print("Sent SERIAL_4000000 command.")
 

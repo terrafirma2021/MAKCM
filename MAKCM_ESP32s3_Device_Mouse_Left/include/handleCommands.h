@@ -50,7 +50,6 @@ void serial1RX();
 void serial0RX();
 void notifyLedFlashTask();
 
-void handleKmMove(const char *command);
 void handleKmMoveto(const char *command);
 void handleKmGetpos(const char *command);
 void handleKmMouseButtonLeft1(const char *command);
