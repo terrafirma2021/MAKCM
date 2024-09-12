@@ -5,13 +5,13 @@
 
 #define USB_FEATURE_SELECTOR_REMOTE_WAKEUP 1
 
-
+bool EspUsbHost::deviceMouseReady = false;
 bool EspUsbHost::deviceConnected = false;
 EspUsbHost::HIDReportDescriptor EspUsbHost::HIDReportDesc = {};
 void flashLED();
 
 
-void usb_lib_task(void *arg)
+void usbLibraryTask(void *arg)
 {
     EspUsbHost *instance = static_cast<EspUsbHost *>(arg);
 
@@ -52,7 +52,7 @@ void usb_lib_task(void *arg)
     }
 }
 
-void usb_client_task(void *arg)
+void usbClientTask(void *arg)
 {
     EspUsbHost *instance = static_cast<EspUsbHost *>(arg);
 
@@ -318,7 +318,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
         descriptor_device.bNumConfigurations = dev_desc->bNumConfigurations;
 
         // Log the device descriptor
-        logDeviceDescriptor(*dev_desc);
+    //    logDeviceDescriptor(*dev_desc);
         break;
     }
 
@@ -345,7 +345,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
             usbStringDescriptor.data += String(desc->val[i], HEX) + " ";
         }
         // Log the string descriptor
-        logStringDescriptor(usbStringDescriptor);
+     //   logStringDescriptor(usbStringDescriptor);
         break;
     }
 
@@ -360,7 +360,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
         const usb_intf_desc_t *intf = (const usb_intf_desc_t *)p;
 
         // Log the interface descriptor
-        logInterfaceDescriptor(*intf);
+    //    logInterfaceDescriptor(*intf);
 
         if (interfaceCounter < MAX_INTERFACE_DESCRIPTORS)
         {
@@ -406,7 +406,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
         const usb_ep_desc_t *ep_desc = (const usb_ep_desc_t *)p;
 
         // Log the endpoint descriptor
-        logEndpointDescriptor(*ep_desc);
+     //   logEndpointDescriptor(*ep_desc);
 
         if (endpointCounter < MAX_ENDPOINT_DESCRIPTORS)
         {
@@ -510,7 +510,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
 
         const usb_iad_desc_t *iad_desc = (const usb_iad_desc_t *)p;
 
-        logInterfaceAssociationDescriptor(*iad_desc);
+    //    logInterfaceAssociationDescriptor(*iad_desc);
 
         descriptor_interface_association.bLength = iad_desc->bLength;
         descriptor_interface_association.bDescriptorType = iad_desc->bDescriptorType;
@@ -534,7 +534,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
 
         const tusb_hid_descriptor_hid_t *hid_desc = (const tusb_hid_descriptor_hid_t *)p;
 
-        logHIDDescriptor(*hid_desc);
+     //   logHIDDescriptor(*hid_desc);
 
         if (hidDescriptorCounter < MAX_HID_DESCRIPTORS)
         {
@@ -587,7 +587,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
 
         const usb_standard_desc_t *desc = (const usb_standard_desc_t *)p;
 
-        logUnknownDescriptor(*desc);
+     //   logUnknownDescriptor(*desc);
 
         if (unknownDescriptorCounter < MAX_UNKNOWN_DESCRIPTORS)
         {
@@ -864,7 +864,7 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
             {
                 usbHost->log(LOG_LEVEL_ERROR, "Error: Failed to close device, err=%d", err);
             }
-            usbHost->tx_Que("Error closing device\n"); // Use tx_Que instead of Serial1
+            usbHost->serial1Send("Error closing device\n"); // Use serial1Send instead of Serial1
         }
         else
         {
@@ -886,14 +886,14 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
 
         if (!usbHost->debugModeActive)
         {
-            usbHost->tx_Que("USB_GOODBYE\n");
+            usbHost->serial1Send("USB_GOODBYE\n");
         }
         else
         {
             usbHost->log(LOG_LEVEL_DEBUG, "Please reinsert USB mouse to begin logging!!");
         }
 
-        usbHost->tx_Que("MOUSE DISCONNECTED\n");
+        usbHost->serial1Send("MOUSE DISCONNECTED\n");
 
         break;
     }
@@ -1181,7 +1181,7 @@ void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
     {
         if (!(last_buttons & MOUSE_BUTTON_LEFT) && (report.buttons & MOUSE_BUTTON_LEFT))
         {
-            tx_Que("km.left(1)\n");
+            serial1Send("km.left(1)\n");
             if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
             {
                 log(LOG_LEVEL_INFO, "Inform: Left mouse button pressed");
@@ -1189,7 +1189,7 @@ void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
         }
         if ((last_buttons & MOUSE_BUTTON_LEFT) && !(report.buttons & MOUSE_BUTTON_LEFT))
         {
-            tx_Que("km.left(0)\n");
+            serial1Send("km.left(0)\n");
             if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
             {
                 log(LOG_LEVEL_INFO, "Inform: Left mouse button released");
@@ -1198,7 +1198,7 @@ void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
 
         if (!(last_buttons & MOUSE_BUTTON_RIGHT) && (report.buttons & MOUSE_BUTTON_RIGHT))
         {
-            tx_Que("km.right(1)\n");
+            serial1Send("km.right(1)\n");
             if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
             {
                 log(LOG_LEVEL_INFO, "Inform: Right mouse button pressed");
@@ -1206,7 +1206,7 @@ void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
         }
         if ((last_buttons & MOUSE_BUTTON_RIGHT) && !(report.buttons & MOUSE_BUTTON_RIGHT))
         {
-            tx_Que("km.right(0)\n");
+            serial1Send("km.right(0)\n");
             if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
             {
                 log(LOG_LEVEL_INFO, "Inform: Right mouse button released");
@@ -1215,7 +1215,7 @@ void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
 
         if (!(last_buttons & MOUSE_BUTTON_MIDDLE) && (report.buttons & MOUSE_BUTTON_MIDDLE))
         {
-            tx_Que("km.middle(1)\n");
+            serial1Send("km.middle(1)\n");
             if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
             {
                 log(LOG_LEVEL_INFO, "Inform: Middle mouse button pressed");
@@ -1223,7 +1223,7 @@ void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
         }
         if ((last_buttons & MOUSE_BUTTON_MIDDLE) && !(report.buttons & MOUSE_BUTTON_MIDDLE))
         {
-            tx_Que("km.middle(0)\n");
+            serial1Send("km.middle(0)\n");
             if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
             {
                 log(LOG_LEVEL_INFO, "Inform: Middle mouse button released");
@@ -1232,7 +1232,7 @@ void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
 
         if (!(last_buttons & MOUSE_BUTTON_FORWARD) && (report.buttons & MOUSE_BUTTON_FORWARD))
         {
-            tx_Que("km.side1(1)\n");
+            serial1Send("km.side1(1)\n");
             if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
             {
                 log(LOG_LEVEL_INFO, "Inform: Forward mouse button pressed");
@@ -1240,7 +1240,7 @@ void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
         }
         if ((last_buttons & MOUSE_BUTTON_FORWARD) && !(report.buttons & MOUSE_BUTTON_FORWARD))
         {
-            tx_Que("km.side1(0)\n");
+            serial1Send("km.side1(0)\n");
             if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
             {
                 log(LOG_LEVEL_INFO, "Inform: Forward mouse button released");
@@ -1249,7 +1249,7 @@ void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
 
         if (!(last_buttons & MOUSE_BUTTON_BACKWARD) && (report.buttons & MOUSE_BUTTON_BACKWARD))
         {
-            tx_Que("km.side2(1)\n");
+            serial1Send("km.side2(1)\n");
             if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
             {
                 log(LOG_LEVEL_INFO, "Inform: Backward mouse button pressed");
@@ -1257,7 +1257,7 @@ void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
         }
         if ((last_buttons & MOUSE_BUTTON_BACKWARD) && !(report.buttons & MOUSE_BUTTON_BACKWARD))
         {
-            tx_Que("km.side2(0)\n");
+            serial1Send("km.side2(0)\n");
             if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
             {
                 log(LOG_LEVEL_INFO, "Inform: Backward mouse button released");
@@ -1272,7 +1272,7 @@ void EspUsbHost::onMouseMove(hid_mouse_report_t report)
     {
         if (report.wheel != 0)
         {
-            tx_Que("km.wheel(%d)\n", report.wheel);
+            serial1Send("km.wheel(%d)\n", report.wheel);
             if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
             {
                 log(LOG_LEVEL_INFO, "Inform: Mouse wheel moved, value=%d", report.wheel);
@@ -1280,7 +1280,7 @@ void EspUsbHost::onMouseMove(hid_mouse_report_t report)
         }
         else
         {
-            tx_Que("km.move(%d,%d)\n", report.x, report.y);
+            serial1Send("km.move(%d,%d)\n", report.x, report.y);
             if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
             {
                 log(LOG_LEVEL_INFO, "Inform: Mouse moved, x=%d, y=%d", report.x, report.y);
@@ -1514,7 +1514,7 @@ EspUsbHost::HIDReportDescriptor EspUsbHost::parseHIDReportDescriptor(uint8_t *da
 
     HIDReportDesc = localHIDReportDesc;
 
-    logHIDReportDescriptor(HIDReportDesc);
+   // logHIDReportDescriptor(HIDReportDesc);
 
     return HIDReportDesc;
 }

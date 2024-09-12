@@ -11,7 +11,7 @@ void setup()
   pinMode(9, OUTPUT);
   usbHost.begin();
   Serial0.println("RIGHT: MCU Started");
-  Serial1.println("MCU Started");
+  Serial1.println("MAKCK v1.2");
   burn_usb_phy_sel_efuse();
 }
 

@@ -16,8 +16,8 @@ void EspUsbHost::handleIncomingCommands(const String &command)
     if (command == "DEBUG_ON")
     {
         debugModeActive = true;
-        EspUsbHost::current_log_level = LOG_LEVEL_FIXED;
-        tx_Que("Debug mode activated.\n");
+        EspUsbHost::current_log_level = LOG_LEVEL_DEBUG;
+        serial1Send("Debug mode activated.\n");
 
         // log(LOG_LEVEL_DEBUG, "Debug mode active. Please remove USB mouse.");  TO DO!!
     }
@@ -39,22 +39,22 @@ void EspUsbHost::handleIncomingCommands(const String &command)
         if (level >= LOG_LEVEL_OFF && level <= LOG_LEVEL_PARSED)
         {
             EspUsbHost::current_log_level = level;
-            tx_Que("Log level set to %d\n", EspUsbHost::current_log_level);
+            serial1Send("Log level set to %d\n", EspUsbHost::current_log_level);
         }
         else
         {
-            tx_Que("Invalid log level: %d\n", level);
+            serial1Send("Invalid log level: %d\n", level);
         }
     }
     else if (command == "READY")
     {
         if (EspUsbHost::deviceConnected)
         {
-            tx_Que("USB_HELLO\n");
+            serial1Send("USB_HELLO\n");
         }
         else
         {
-            tx_Que("USB_ISNULL\n");
+            serial1Send("USB_ISNULL\n");
         }
     }
     else if (command == "USB_INIT")
@@ -107,6 +107,6 @@ void EspUsbHost::handleIncomingCommands(const String &command)
     }
     else
     {
-        tx_Que("Unknown command received: %s\n", command.c_str());
+        serial1Send("Unknown command received: %s\n", command.c_str());
     }
 }
