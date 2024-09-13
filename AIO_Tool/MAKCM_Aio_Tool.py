@@ -1,20 +1,23 @@
+# -*- coding: utf-8 -*-
+import tkinter as tk
 import customtkinter as ctk
 import serial
 import serial.tools.list_ports
 import threading
 import time
 import tkinter.filedialog as fd
-import random
-import os
 import subprocess
 import webbrowser
 import queue
 import sys
-import shlex
+import os
 from PIL import Image, ImageTk
-from PIL import Image
 
 class MAKCM_GUI:
+    # Constants for text configuration
+    TEXT_SIZE = 12
+    TEXT_FONT = ("Helvetica", TEXT_SIZE)
+    
     def __init__(self, root):
         self.root = root
         self.is_connected = False
@@ -24,7 +27,6 @@ class MAKCM_GUI:
         self.boot_mode = "Normal"
         self.com_port = ""
         self.print_serial_data = True
-        self.IsLogging = False
         self.FlashReady = False
         self.BIN_Path = ""
         self.log_queue = queue.Queue()
@@ -35,11 +37,13 @@ class MAKCM_GUI:
         self.available_ports = []
         self.port_mapping = {}
 
-        self.command_history = []
+        self.command_history = [] 
         self.history_position = -1
 
         self.discord_icon_path = self.get_icon_path("Discord.png")
         self.github_icon_path = self.get_icon_path("GitHub.png")
+
+        self.define_theme_colors()
 
         threading.Thread(target=self.log_to_file, daemon=True).start()
         self.start_com_port_monitoring()
@@ -47,13 +51,24 @@ class MAKCM_GUI:
 
         self.set_default_mode()
 
+    def define_theme_colors(self):
+        """Defines colors based on the current theme."""
+        if self.theme_is_dark:
+            self.dropdown_bg = "#2b2b2b"       # Dark background for drop-down
+            self.dropdown_fg = "white"         # White text
+            self.dropdown_selected_bg = "#555555"  # Selected item background
+        else:
+            self.dropdown_bg = "lightgrey"     # Light background for drop-down
+            self.dropdown_fg = "black"         # Black text
+            self.dropdown_selected_bg = "#d3d3d3"  # Selected item background
+
     def create_tooltip(self, widget, text):
-        """Create a tooltip that appears in the middle of row 0 when hovering over a widget."""
+        """Create a tooltip that appears at the top center when hovering over a widget."""
         def show_tooltip(_):
             if self.tooltip_label:
                 self.tooltip_label.destroy()
 
-            self.tooltip_label = ctk.CTkLabel(self.root, text=text)
+            self.tooltip_label = ctk.CTkLabel(self.root, text=text, bg_color="transparent", font=self.TEXT_FONT)
             window_width = self.root.winfo_width()
             self.tooltip_label.place(x=window_width // 2, y=5, anchor="n")
 
@@ -65,7 +80,6 @@ class MAKCM_GUI:
         widget.bind("<Enter>", show_tooltip)
         widget.bind("<Leave>", hide_tooltip)
 
-
     def get_icon_path(self, filename):
         """Handle PyInstaller packed and script execution paths."""
         if getattr(sys, 'frozen', False):
@@ -75,33 +89,35 @@ class MAKCM_GUI:
 
         return os.path.join(base_path, filename)
 
-        
-
     def setup_gui(self):
-         self.root.title("MAKCM v1.1")
-         self.root.geometry("800x600")
-         self.root.resizable(True, True)
-         self.root.protocol("WM_DELETE_WINDOW", self.quit_application)
- 
-         self.create_icons()
- 
-         self.label_mcu = ctk.CTkLabel(self.root, text="MCU disconnected", text_color="blue")
-         self.label_mcu.grid(row=0, column=0, padx=35, pady=5, sticky="w")
- 
-         self.create_buttons()
-         self.create_com_port_section()
-         self.create_text_input()
-         self.create_output_box()
- 
-         self.root.grid_columnconfigure(0, weight=1)
-         self.root.grid_columnconfigure(1, weight=1)
-         self.root.grid_columnconfigure(2, weight=0)
-         self.root.grid_rowconfigure(7, weight=1)
-         self.scan_com_ports()
-         if self.available_ports:
-             self.com_port_combo.set(self.available_ports[0])
-         else:
-             self.com_port_combo.set("No COM Ports Found")
+        self.root.title("MAKCM v1.2")
+        self.root.geometry("800x600")
+        self.root.resizable(True, True)
+        self.root.protocol("WM_DELETE_WINDOW", self.quit_application)
+
+        self.create_icons()
+
+        self.status_frame = ctk.CTkFrame(self.root, fg_color="transparent")
+        self.status_frame.grid(row=0, column=0, columnspan=3, padx=10, pady=5, sticky="w")
+
+        self.label_mcu = ctk.CTkLabel(self.status_frame, text="MCU disconnected", text_color="blue", width=300, anchor="w", font=self.TEXT_FONT)
+        self.label_mcu.pack(side="left")
+
+        self.create_buttons()
+        self.create_com_port_section()
+        self.create_text_input()
+        self.create_output_box()
+
+
+        self.root.grid_columnconfigure(0, weight=0)
+        self.root.grid_columnconfigure(1, weight=1)
+        self.root.grid_columnconfigure(2, weight=0)
+        self.root.grid_rowconfigure(7, weight=1)
+        self.scan_com_ports()
+        if self.available_ports:
+            self.com_port_combo.set(self.available_ports[0])
+        else:
+            self.com_port_combo.set("No COM Ports Found")
 
     def create_icons(self, parent_frame=None):
         """Load and display Discord and GitHub icons below the buttons, with hover rotation and click events."""
@@ -129,7 +145,6 @@ class MAKCM_GUI:
         self.discord_icon_label.bind("<Leave>", lambda event: self.animate_icon(self.discord_icon_label, self.discord_image, -360))
         self.discord_icon_label.bind("<Button-1>", lambda event: webbrowser.open("https://discord.gg/6TJBVtdZbq"))
 
-
         self.discord_icon_label.image = self.discord_icon
         self.github_icon_label.image = self.github_icon
 
@@ -141,13 +156,11 @@ class MAKCM_GUI:
 
         def rotate_step(current_angle=0, step=0):
             if step <= steps:
-  
                 rotated_image = pil_image.rotate(current_angle, expand=True)
                 rotated_image_ctk = ImageTk.PhotoImage(rotated_image)
 
                 label.configure(image=rotated_image_ctk)
                 label.image = rotated_image_ctk
-
 
                 self.root.after(interval, rotate_step, current_angle + angle_step, step + 1)
 
@@ -155,43 +168,51 @@ class MAKCM_GUI:
 
     def create_buttons(self):
         button_width = 150
+        button_height = 35
 
-        self.theme_button = ctk.CTkButton(self.root, text="Dark Mode", command=self.change_theme, fg_color="transparent", width=button_width)
+        self.theme_button = ctk.CTkButton(self.root, text="Dark Mode", command=self.change_theme, fg_color="transparent", width=button_width, height=button_height, font=self.TEXT_FONT)
         self.theme_button.grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.create_tooltip(self.theme_button, "Sets colour change.")
 
-        self.mode_button = ctk.CTkButton(self.root, text="Mode: Comm", command=self.toggle_mode, fg_color="transparent", width=button_width)
+        self.mode_button = ctk.CTkButton(self.root, text="Mode: Comm", command=self.toggle_mode, fg_color="transparent", width=button_width, height=button_height, font=self.TEXT_FONT)
         self.mode_button.grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.create_tooltip(self.mode_button, "To flash firmware, you need Flash. Other functions need Comm mode.")
 
-        self.connect_button = ctk.CTkButton(self.root, text="Connect", command=self.toggle_connection, fg_color="transparent", width=button_width)
+        self.connect_button = ctk.CTkButton(self.root, text="Connect", command=self.toggle_connection, fg_color="transparent", width=button_width, height=button_height, font=self.TEXT_FONT)
         self.connect_button.grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.create_tooltip(self.connect_button, "Will sync the tool to the MCU.")
 
-        self.quit_button = ctk.CTkButton(self.root, text="Quit", command=self.quit_application, fg_color="transparent", width=button_width)
+        self.quit_button = ctk.CTkButton(self.root, text="Quit", command=self.quit_application, fg_color="transparent", width=button_width, height=button_height, font=self.TEXT_FONT)
         self.quit_button.grid(row=4, column=0, padx=5, pady=5, sticky="w")
         self.create_tooltip(self.quit_button, "Safe shut down to restart the MCUs.")
 
-        self.log_button = ctk.CTkButton(self.root, text="Start Logging", command=self.toggle_logging, fg_color="transparent", width=button_width)
-        self.log_button.grid(row=1, column=2, padx=5, pady=5, sticky="e")
-        self.create_tooltip(self.log_button, "Used if you have a problem, produces a log file for support.")
-
-        self.control_button = ctk.CTkButton(self.root, text="Test", command=self.test_button_function, fg_color="transparent", width=button_width)
+        self.control_button = ctk.CTkButton(self.root, text="Test", command=self.test_button_function, fg_color="transparent", width=button_width, height=button_height, font=self.TEXT_FONT)
         self.control_button.grid(row=2, column=2, padx=5, pady=5, sticky="e")
         self.create_tooltip(self.control_button, "Test: Simple mouse nudge test.")
 
-        self.open_log_button = ctk.CTkButton(self.root, text="User Logs", command=self.open_log, fg_color="transparent", width=button_width)
+        self.open_log_button = ctk.CTkButton(self.root, text="User Logs", command=self.open_log, fg_color="transparent", width=button_width, height=button_height, font=self.TEXT_FONT)
         self.open_log_button.grid(row=3, column=2, padx=5, pady=5, sticky="e")
         self.create_tooltip(self.open_log_button, "Submit the file if requested for support.")
 
-        self.browse_button = ctk.CTkButton(self.root, text="Flash", command=self.browse_file, fg_color="transparent", width=button_width)
+        self.browse_button = ctk.CTkButton(self.root, text="Flash", command=self.browse_file, fg_color="transparent", width=button_width, height=button_height, font=self.TEXT_FONT)
         self.browse_button.grid(row=4, column=2, padx=5, pady=5, sticky="e")
-        self.create_tooltip(self.browse_button, "Hold the nearest button and insert usb, dont let go of button untill you connect!")
+        self.create_tooltip(self.browse_button, "Hold the nearest button and insert USB, don't let go of the button until you connect!")
 
-        self.send_button = ctk.CTkButton(self.root, text="Send", command=self.send_input, fg_color="transparent", width=button_width, height=35)
+        self.clear_button = ctk.CTkButton(self.root, text="Clear Terminal", command=self.clear_terminal, fg_color="transparent", width=150, height=button_height, font=self.TEXT_FONT)
+        self.clear_button.grid(row=6, column=0, padx=5, pady=5, sticky="w")
+        self.create_tooltip(self.clear_button, "Clears the terminal output.")
+
+        self.send_button = ctk.CTkButton(
+            self.root, 
+            text="Send", 
+            command=self.send_input, 
+            fg_color="transparent", 
+            width=150,
+            height=button_height,
+            font=self.TEXT_FONT
+        )
         self.send_button.grid(row=6, column=2, padx=5, pady=5, sticky="e")
         self.create_tooltip(self.send_button, "For quick commands like echo testing.")
-
 
     def change_theme(self):
         if self.theme_is_dark:
@@ -203,11 +224,11 @@ class MAKCM_GUI:
                 self.mode_button,
                 self.connect_button,
                 self.quit_button,
-                self.log_button,
                 self.control_button,
                 self.open_log_button,
                 self.browse_button,
-                self.send_button
+                self.send_button,
+                self.clear_button
             ]
 
             for button in button_list:
@@ -215,7 +236,6 @@ class MAKCM_GUI:
 
             self.label_mcu.configure(text_color="black")
             self.theme_button.configure(text="Light Mode")
-
         else:
             ctk.set_appearance_mode("dark")
             self.root.configure(bg="#2b2b2b")
@@ -225,11 +245,11 @@ class MAKCM_GUI:
                 self.mode_button,
                 self.connect_button,
                 self.quit_button,
-                self.log_button,
                 self.control_button,
                 self.open_log_button,
                 self.browse_button,
-                self.send_button
+                self.send_button,
+                self.clear_button
             ]
 
             for button in button_list:
@@ -239,11 +259,15 @@ class MAKCM_GUI:
             self.theme_button.configure(text="Dark Mode")
 
         self.theme_is_dark = not self.theme_is_dark
+        self.define_theme_colors()
 
-
+        if self.history_dropdown and tk.Toplevel.winfo_exists(self.history_dropdown):
+            frame = self.history_dropdown.winfo_children()[0] 
+            frame.configure(bg=self.dropdown_bg)
+            self.history_listbox.configure(bg=self.dropdown_bg, fg=self.dropdown_fg, selectbackground=self.dropdown_selected_bg, font=self.TEXT_FONT)
 
     def create_com_port_section(self):
-        self.com_port_combo = ctk.CTkComboBox(self.root, values=["Scanning ports..."], state="readonly", justify="right")
+        self.com_port_combo = ctk.CTkComboBox(self.root, values=["Scanning ports..."], state="readonly", justify="right", font=self.TEXT_FONT)
         self.com_port_combo.grid(row=0, column=2, padx=5, pady=5, sticky="e")
         self.com_port_combo.bind("<Enter>", self.on_combo_hover)
         self.com_port_combo.bind("<Leave>", self.on_combo_leave)
@@ -275,12 +299,9 @@ class MAKCM_GUI:
                     self.available_ports = list(current_ports)
                     self.port_mapping = {port.description: port.device for port in serial.tools.list_ports.comports()}
 
-
                     self.toggle_serial_printing(False)
 
-
                     self.root.after(0, self.update_com_port_combo)
-
 
                     if not self.is_connected:
                         if len(self.available_ports) == 1:
@@ -294,7 +315,6 @@ class MAKCM_GUI:
                                 self.terminal_print(f"New port detected: {new_port_description}. Please select and press 'Connect'.")
                                 self.com_port_combo.set(new_port_description)
 
-
                     self.toggle_serial_printing(True)
 
                     previous_ports = current_ports
@@ -303,8 +323,6 @@ class MAKCM_GUI:
 
         monitoring_thread = threading.Thread(target=monitor_ports, daemon=True)
         monitoring_thread.start()
-
-
 
     def update_com_port_combo(self):
         """Updates the COM port combo box with the latest available ports."""
@@ -319,25 +337,50 @@ class MAKCM_GUI:
             self.com_port_combo.set("No COM Ports Found")
             self.terminal_print("No COM Ports Found. Please connect a device.")
 
-
     def scan_com_ports(self):
         """Scan available COM ports immediately and update the list."""
         self.available_ports = [f"{port.description}" for port in serial.tools.list_ports.comports()]
         self.port_mapping = {port.description: port.device for port in serial.tools.list_ports.comports()}
 
-
         self.com_port_combo.update_idletasks()
 
-
     def create_text_input(self):
-        self.text_input = ctk.CTkEntry(self.root, height=35)
-        self.text_input.grid(row=6, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        """Creates the text input field along with a history button."""
+
+        input_frame = ctk.CTkFrame(self.root, fg_color="transparent")
+        input_frame.grid(row=6, column=1, padx=5, pady=5, sticky="ew")
+        input_frame.grid_columnconfigure(0, weight=1)
+        input_frame.grid_columnconfigure(1, weight=0)
+
+        self.text_input = ctk.CTkEntry(input_frame, height=35, font=self.TEXT_FONT)
+        self.text_input.grid(row=0, column=0, padx=(0, 5), pady=0, sticky="ew")
         self.text_input.bind("<Return>", self.send_input)
         self.text_input.bind("<Up>", self.handle_history)
         self.text_input.bind("<Down>", self.handle_history)
 
+        self.text_input.bind("<Configure>", lambda event: self.update_history_dropdown_position())
+
+
+        self.history_button = ctk.CTkButton(
+            input_frame,
+            text="▼", 
+            width=30, 
+            height=35,
+            command=self.show_history_menu,
+            fg_color="transparent",
+            hover_color="lightgray",
+            border_width=0,
+            font=self.TEXT_FONT
+        )
+        self.history_button.grid(row=0, column=1, padx=(0, 0), pady=0, sticky="e")
+        self.create_tooltip(self.history_button, "Show command history")
+
+
+        self.history_dropdown = None
+        self.max_history_display = 20 
+
     def create_output_box(self):
-        self.output_text = ctk.CTkTextbox(self.root, height=150, state="disabled")
+        self.output_text = ctk.CTkTextbox(self.root, height=150, state="disabled", font=self.TEXT_FONT)
         self.output_text.grid(row=7, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
 
     def append_to_terminal(self, message):
@@ -347,12 +390,7 @@ class MAKCM_GUI:
         self.output_text.see(ctk.END)
 
     def toggle_serial_printing(self, enable: bool):
-
         self.print_serial_data = enable
-
-        status = "enabled" if enable else "disabled"
-    #    self.terminal_print(f"Serial data printing {status}.")
-
 
     def terminal_print(self, *args, sep=" ", end="\n"):
         message = sep.join(map(str, args)) + end
@@ -362,21 +400,25 @@ class MAKCM_GUI:
 
         self.log_queue.put(message.strip())
 
-
     def send_input(self, event=None):
         command = self.text_input.get().strip()
         if command:
-        #    self.terminal_print(f"GUI Input: {command}")
             if not self.is_connected or not self.serial_open:
                 self.terminal_print("Connect to Device first")
             else:
                 self.text_input.delete(0, ctk.END)
                 if not command.endswith("\n"):
                     command += "\n"
-                self.serial_connection.write(command.encode())
-            #    self.terminal_print(f"Sent command: {command.strip()}")  # Debugging feedback
+                try:
+                    self.serial_connection.write(command.encode())
+                    self.terminal_print(f"Sent command: {command.strip()}")
 
-
+                    if len(self.command_history) >= self.max_history_display:
+                        self.command_history.pop(0) 
+                    self.command_history.append(command.strip())
+                    self.update_history_dropdown()
+                except Exception as e:
+                    self.terminal_print(f"Failed to send command: {e}")
 
     def toggle_mode(self):
         if self.is_connected:
@@ -389,31 +431,22 @@ class MAKCM_GUI:
 
         if self.Normal_boot:
             self.browse_button.configure(state="disabled")
-            self.log_button.configure(state="normal")
             self.control_button.configure(state="normal")
         else:
-            self.log_button.configure(state="disabled")
             self.control_button.configure(state="disabled")
             self.browse_button.configure(state="normal")
 
         self.update_mcu_status()
-
 
     def set_default_mode(self):
         """Set default mode to Comm and configure buttons accordingly."""
         self.Normal_boot = True
         self.mode_button.configure(text="Mode: Comm")
         self.browse_button.configure(state="disabled")
-        self.log_button.configure(state="normal")
         self.control_button.configure(state="normal")
         self.update_mcu_status()
 
-
-
-
-
-
-    def toggle_connection(self, baudrate=115200):
+    def toggle_connection(self, baudrate=4000000):
         if self.is_connected:
             try:
                 if self.serial_connection and self.serial_connection.is_open:
@@ -422,12 +455,11 @@ class MAKCM_GUI:
                 self.serial_connection.close()
                 self.is_connected = False
                 self.serial_open = False
-                self.IsLogging = False
-                self.log_button.configure(text="Start Logging")
                 self.connect_button.configure(text="Connect")
                 self.com_port_combo.configure(state="normal")
-                # self.terminal_print("Serial connection closed.")
                 self.update_mcu_status()
+                self.history_button.configure(state="disabled")
+                self.hide_history_dropdown() 
             except Exception as e:
                 self.terminal_print(f"Failed to close serial connection: {e}")
         else:
@@ -453,15 +485,16 @@ class MAKCM_GUI:
                     self.com_speed = baudrate
                     self.connect_button.configure(text="Disconnect")
                     self.com_port_combo.configure(state="disabled")
-                #    self.terminal_print(f"Successfully connected to {self.com_port} at {baudrate} baud.")
+                    self.serial_connection.write("DEBUG_ON\n".encode())
+
                     threading.Thread(target=self.serial_communication_thread, daemon=True).start()
                     threading.Thread(target=self.monitor_com_port, daemon=True).start()
                     self.update_mcu_status()
+                    self.history_button.configure(state="normal") 
                 except Exception as e:
                     self.terminal_print(f"Failed to connect: {e}")
             else:
                 self.terminal_print("Please select a new COM port.")
-
 
     def open_log(self):
         log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log.txt')
@@ -510,7 +543,7 @@ class MAKCM_GUI:
             self.BIN_Path = file_path
             self.FlashReady = True
             self.terminal_print(f"Loaded file: {self.BIN_Path}")
-            self.browse_button.configure(text="Ready", command=self.flash_firmware)
+            self.browse_button.configure(text="Flash", command=self.flash_firmware, state="normal")
 
     def flash_firmware(self):
         """Start flashing firmware in a separate thread to keep the GUI responsive."""
@@ -518,20 +551,26 @@ class MAKCM_GUI:
             self.terminal_print("No firmware file loaded or flash not ready.")
             return
 
-        flash_thread = threading.Thread(target=self.flash_firmware_thread)
+        self.browse_button.configure(text="Started", state="disabled")
+        self.terminal_print("Flashing started...")
+
+        flash_thread = threading.Thread(target=self.flash_firmware_thread, daemon=True)
         flash_thread.start()
 
     def flash_firmware_thread(self):
         if not self.FlashReady:
             self.terminal_print("FlashReady flag is not set.")
+            self.reset_flash_button()
             return
 
         if not self.BIN_Path:
             self.terminal_print("No BIN file selected.")
+            self.reset_flash_button()
             return
 
         if not self.com_port:
             self.terminal_print("COM port is not set.")
+            self.reset_flash_button()
             return
 
         self.terminal_print("Starting to flash now. Please wait for 10 seconds.")
@@ -540,6 +579,9 @@ class MAKCM_GUI:
             self.toggle_connection()
 
         time.sleep(0.5)
+
+        process_failed = False
+        process = None
 
         try:
             self.toggle_serial_printing(False)
@@ -564,7 +606,6 @@ class MAKCM_GUI:
             )
 
             found_writing = False
-            process_failed = False
 
             while True:
                 output = process.stdout.readline()
@@ -580,8 +621,6 @@ class MAKCM_GUI:
                             self.toggle_serial_printing(False)
                         else:
                             self.terminal_print(output.strip())
-                    else:
-                        pass
 
             stderr_output = process.stderr.read()
 
@@ -598,25 +637,28 @@ class MAKCM_GUI:
 
         except Exception as e:
             self.terminal_print(f"Flashing error: {e}")
+            process_failed = True
 
         finally:
             if not process_failed:
                 self.terminal_print("Finished!")
             self.toggle_connection()
-            self.browse_button.configure(text="Flash", command=self.browse_file)
+            self.browse_button.configure(text="Flash", command=self.browse_file, state="normal")
             self.FlashReady = False
 
-
-
-
+    def reset_flash_button(self):
+        """Resets the Flash button to its default state."""
+        self.root.after(0, lambda: self.browse_button.configure(text="Flash", command=self.browse_file, state="normal"))
 
     def quit_application(self):
         if self.serial_open and self.serial_connection.is_open:
             try:
+                self.serial_connection.write("DEBUG_OFF\n".encode())
                 self.serial_connection.close()
                 self.terminal_print("Serial connection closed before quitting.")
             except Exception as e:
                 self.terminal_print(f"Error while closing serial connection: {e}")
+        self.hide_history_dropdown() 
         self.root.quit()
         self.root.destroy()
 
@@ -637,189 +679,11 @@ class MAKCM_GUI:
         else:
             self.terminal_print("Serial connection is not established. Please connect first.")
 
-    def toggle_logging(self):
-        if self.is_connected and self.Normal_boot:
-            if self.serial_connection and self.serial_connection.is_open:
-                try:
-                    if not self.IsLogging:
-                    #    self.terminal_print("Starting logging by sending SERIAL_4000000...")
-                        self.serial_connection.write("SERIAL_4000000\n".encode())
-                    #    self.terminal_print("Sent SERIAL_4000000 command.")
-
-                        time.sleep(0.5)
-
-
-                    #    self.terminal_print("Reconnecting at 4Mbps...")
-                        self.toggle_connection()  # Disconnect
-                        time.sleep(0.5)  # Delay for stability
-                        self.toggle_connection(baudrate=4000000)  # Reconnect at 4Mbps
-
-                        self.serial_connection.write("DEBUG_ON\n".encode())
-                    #    self.terminal_print("Sent DEBUG_ON command to enable logging.")
-
-                        self.IsLogging = True
-                        self.log_button.configure(text="Stop Logging")
-                    #    self.terminal_print("Logging started successfully.")
-
-                    else:
-                    #    self.terminal_print("Stopping logging by sending DEBUG_OFF...")
-
-                        self.serial_connection.write("DEBUG_OFF\n".encode())
-                    #    self.terminal_print("Sent DEBUG_OFF command to disable logging.")
-
-                    #    self.terminal_print("Reconnecting at 115200...")
-                        self.toggle_connection()  # Disconnect
-                        time.sleep(1)  # Delay for stability
-                        self.toggle_connection(baudrate=115200)  # Reconnect at default baud
-
-                        self.IsLogging = False
-                        self.log_button.configure(text="Start Logging")
-                    #    self.terminal_print("Logging stopped successfully.")
-
-                    self.update_mcu_status()
-                #    self.terminal_print("MCU status updated.")
-                except Exception as e:
-                    self.terminal_print(f"Error during logging toggle: {e}")
-            else:
-                self.terminal_print("Serial connection is not open.")
-        else:
-            self.terminal_print("MCU is not connected in Normal mode.")
-
-
-    def efuse_burn(self):
-#       """This function starts the efuse burn in a new thread to keep the GUI responsive."""
-#       if not self.is_connected:
-#           self.terminal_print("Serial connection is not established. Please connect first.")
-#       elif self.Normal_boot:  # If the mode is not Boot
-#           self.terminal_print("Efuse burn can only be done in Boot mode. Connect in Boot mode first.")
-#       else:
-#           # Start the burn_efuse_thread in a new thread
-#           efuse_thread = threading.Thread(target=self.burn_efuse_thread)
-#           efuse_thread.start()
-        self.terminal_print("Moved to fw.")
-
-    def burn_efuse_thread(self):
-#    """This function runs the efuse burn subprocess in a separate thread."""
-#    if self.com_port and self.com_speed:
-#        stored_com_port = self.com_port 
-#
-#        try:
-#            if self.is_connected:
-#                # Disconnect the serial connection
-#                self.terminal_print("Flashing, please Wait for 5 Seconds!!!")
-#                self.toggle_connection()
-#                time.sleep(1)  # Allow the port to fully release    
-#
-#                self.monitoring_active = False  
-#
-#            # Explicitly ensure the serial port is fully closed
-#            if self.serial_connection and self.serial_connection.is_open:
-#                self.terminal_print("Serial port still open, trying to close it...")
-#                self.serial_connection.close()
-#                time.sleep(1)  # Give some time for the port to close   
-#
-#            # Double-check that the serial port is closed
-#            self.serial_connection = None   
-#
-#            # Disable terminal printing but keep logging
-#            self.toggle_serial_printing(False)  
-#
-#            espefuse_cmd = [
-#                self.get_espefuse_path(),
-#                '--port', stored_com_port,
-#                '--baud', str(self.com_speed),
-#                'burn_efuse',
-#                'USB_PHY_SEL'
-#            ]   
-#
-#            # Log the command being run
-#            self.terminal_print(f"Running espefuse command: {' '.join(espefuse_cmd)}")  
-#
-#            startupinfo = None
-#            if os.name == 'nt':
-#                # Hide subprocess window on Windows
-#                startupinfo = subprocess.STARTUPINFO()
-#                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW  
-#
-#            process = subprocess.Popen(
-#                espefuse_cmd,
-#                stdin=subprocess.PIPE,
-#                stdout=subprocess.PIPE,
-#                stderr=subprocess.PIPE,
-#                text=True,
-#                universal_newlines=True,
-#                startupinfo=startupinfo
-#            )   
-#
-#            burn_needed = False
-#            burn_prompt_found = False
-#            burn_error_found = False    
-#
-#            # Continuously read stdout and stderr from the subprocess
-#            while True:
-#                line = process.stdout.readline()
-#                if not line:
-#                    break   
-#
-#                # Log each line from the process
-#                self.terminal_print(f"espefuse stdout: {line.strip()}") 
-#
-#                if "Type 'BURN' (all capitals) to continue." in line:
-#                    # Log that we're sending the 'BURN' command
-#                    self.terminal_print("Sending 'BURN' command to proceed with efuse burning.")
-#                    process.stdin.write("BURN\n")
-#                    process.stdin.flush()  # Ensure the input is flushed
-#                    burn_needed = True
-#                    burn_prompt_found = True
-#                    break   
-#
-#                if "The same value for USB_PHY_SEL is already burned" in line:
-#                    self.terminal_print("Efuse already burned.")
-#                    break   
-#
-#                # Handle subprocess-level errors reported by espefuse
-#                if "Error" in line or "failed" in line:
-#                    burn_error_found = True
-#                    self.terminal_print(f"espefuse error: {line.strip()}")
-#                    break   
-#
-#            # Ensure stderr is also read and logged
-#            stderr_output = process.stderr.read().strip()
-#            if stderr_output:
-#                self.terminal_print(f"espefuse stderr: {stderr_output}")    
-#
-#            # Wait for the process to complete and get the return code
-#            process.wait()  
-#
-#            # Enable terminal printing again for the final user output
-#            self.toggle_serial_printing(True)   
-#
-#            # Log results based on subprocess output
-#            if burn_error_found:
-#                self.terminal_print("Efuse burning failed: Error detected during burning.")
-#            elif burn_prompt_found or burn_needed:
-#                self.terminal_print("Efuse burning complete!")
-#            else:
-#                self.terminal_print("Efuse already burned.")    
-#
-#        except Exception as e:
-#            # Handle actual exceptions raised during the process
-#            self.toggle_serial_printing(True)  # Ensure exceptions are shown to the user
-#            self.terminal_print(f"Efuse burning error: {e}")
-#        finally:
-#            # Ensure the subprocess is fully done before attempting to reconnect
-#            time.sleep(1)  # Short delay to ensure the port is released
-#            self.toggle_connection()  # Reconnect the serial connection after the subprocess is done    
-#
-#            # Restart the COM port monitoring thread
-#            self.monitoring_active = True
-#            threading.Thread(target=self.monitor_com_port, daemon=True).start()
-#    else:
-#        self.terminal_print("COM port or Baud rate not set.") 
-         self.terminal_print("Efuse burn functionality moved to fw .")
-
-
-
+    def clear_terminal(self):
+        """Clears the terminal output."""
+        self.output_text.configure(state="normal")
+        self.output_text.delete('1.0', tk.END)  
+        self.output_text.configure(state="disabled")
 
     def serial_communication_thread(self):
         while self.is_connected and self.serial_open:
@@ -836,9 +700,8 @@ class MAKCM_GUI:
 
                     time.sleep(0.1)
             except Exception as e:
-        #        self.terminal_print(f"Error reading from serial: {e}")
+                self.terminal_print(f"Serial communication error: {e}")
                 break
-
 
     def monitor_com_port(self):
         while self.serial_open:
@@ -857,20 +720,14 @@ class MAKCM_GUI:
                 self.terminal_print(f"Error in COM port monitoring: {e}")
                 break
 
-
-
-
     def handle_disconnect(self):
         self.terminal_print("Device disconnected. Please check the USB connection or select a new COM port.")
 
         self.com_port_combo.configure(state="normal")
-
         self.connect_button.configure(text="Connect")
-
+        self.history_button.configure(state="disabled") 
         self.update_mcu_status()
-
-
-
+        self.hide_history_dropdown() 
 
     def update_mcu_status(self):
         if self.is_connected:
@@ -882,25 +739,121 @@ class MAKCM_GUI:
             status_color = "#1860db"
         self.label_mcu.configure(text=self.mcu_status, text_color=status_color)
 
-#    def get_espefuse_path(self):
-#        base_path = os.path.dirname(os.path.abspath(__file__))
-#        return os.path.join(base_path, 'espefuse.exe')
-
     def handle_history(self, event):
-        if event.keysym == "Up" and self.history_position < len(self.command_history) - 1:
-            self.history_position += 1
-            self.text_input.delete(0, ctk.END)
-            self.text_input.insert(0, self.command_history[-self.history_position - 1])
-        elif event.keysym == "Down" and self.history_position > 0:
-            self.history_position -= 1
-            self.text_input.delete(0, ctk.END)
-            self.text_input.insert(0, self.command_history[-self.history_position - 1])
+        if not self.command_history:
+            return
+
+        if event.keysym == "Up":
+            if self.history_position < len(self.command_history) - 1:
+                self.history_position += 1
+                self.text_input.delete(0, ctk.END)
+                self.text_input.insert(0, self.command_history[-self.history_position - 1])
+        elif event.keysym == "Down":
+            if self.history_position > 0:
+                self.history_position -= 1
+                self.text_input.delete(0, ctk.END)
+                self.text_input.insert(0, self.command_history[-self.history_position - 1])
+            elif self.history_position == 0:
+                self.history_position = -1
+                self.text_input.delete(0, ctk.END)
+
+    def update_history_dropdown(self):
+        """Updates the history dropdown with the latest command history."""
+        if self.history_dropdown and tk.Toplevel.winfo_exists(self.history_dropdown):
+            self.history_listbox.delete(0, tk.END)
+            for cmd in reversed(self.command_history[-self.max_history_display:]): 
+                self.history_listbox.insert(tk.END, cmd)
+
+    def show_history_menu(self):
+        """Displays the history dropdown below the text input field."""
+        if not self.command_history:
+            return
+
+        if self.history_dropdown and tk.Toplevel.winfo_exists(self.history_dropdown):
+            return
+
+        self.history_dropdown = tk.Toplevel(self.root)
+        self.history_dropdown.wm_overrideredirect(True) 
+        self.history_dropdown.configure(bg=self.dropdown_bg)
+
+        self.root.update_idletasks() 
+        input_x = self.text_input.winfo_rootx()
+        input_y = self.text_input.winfo_rooty() + self.text_input.winfo_height()
+
+        input_width = self.text_input.winfo_width()
+
+        self.history_dropdown.wm_geometry(f"{input_width}x200+{input_x}+{input_y}")
+
+        frame = tk.Frame(self.history_dropdown, bg=self.dropdown_bg, bd=1, relief="solid")
+        frame.pack(fill="both", expand=True)
+
+        self.history_listbox = tk.Listbox(
+            frame,
+            selectmode=tk.SINGLE,
+            height=10,
+            bg=self.dropdown_bg,
+            fg=self.dropdown_fg,
+            selectbackground=self.dropdown_selected_bg,
+            font=self.TEXT_FONT
+        )
+        for cmd in reversed(self.command_history[-self.max_history_display:]):
+            self.history_listbox.insert(tk.END, cmd)
+        self.history_listbox.pack(side="left", fill="both", expand=True)
+
+        self.history_listbox.bind("<<ListboxSelect>>", self.on_history_select)
+
+        self.history_listbox.bind("<MouseWheel>", lambda event: self.history_listbox.yview_scroll(int(-1*(event.delta/120)), "units"))
+        self.history_listbox.bind("<Button-4>", lambda event: self.history_listbox.yview_scroll(-1, "units"))
+        self.history_listbox.bind("<Button-5>", lambda event: self.history_listbox.yview_scroll(1, "units"))  
+
+        self.root.bind("<Button-1>", self.on_click_outside)
+
+        self.history_listbox.focus_set()
+
+    def update_history_dropdown_position(self):
+        """Updates the position and width of the history dropdown to align with the text input."""
+        if self.history_dropdown and tk.Toplevel.winfo_exists(self.history_dropdown):
+            input_x = self.text_input.winfo_rootx()
+            input_y = self.text_input.winfo_rooty() + self.text_input.winfo_height()
+            input_width = self.text_input.winfo_width()
+            self.history_dropdown.wm_geometry(f"{input_width}x200+{input_x}+{input_y}")
+
+    def on_history_select(self, event):
+        selected_indices = self.history_listbox.curselection()
+        if selected_indices:
+            selected_command = self.history_listbox.get(selected_indices[0])
+            self.select_history_command(selected_command)
+            self.hide_history_dropdown()
+
+    def on_click_outside(self, event):
+        """Hide the dropdown if clicking outside of it."""
+        if self.history_dropdown:
+            x1 = self.history_dropdown.winfo_rootx()
+            y1 = self.history_dropdown.winfo_rooty()
+            x2 = x1 + self.history_dropdown.winfo_width()
+            y2 = y1 + self.history_dropdown.winfo_height()
+
+            if not (x1 <= event.x_root <= x2 and y1 <= event.y_root <= y2):
+                self.hide_history_dropdown()
+
+    def hide_history_dropdown(self):
+        """Destroy the history dropdown if it exists."""
+        if self.history_dropdown and tk.Toplevel.winfo_exists(self.history_dropdown):
+            self.history_dropdown.destroy()
+            self.history_dropdown = None
+            self.root.unbind("<Button-1>") 
+
+    def select_history_command(self, command):
+        """Sets the selected history command into the text input."""
+        self.text_input.delete(0, ctk.END)
+        self.text_input.insert(0, command)
 
     def open_support(self):
         webbrowser.open("https://github.com/terrafirma2021/MAKCM")
 
-
 if __name__ == "__main__":
+    ctk.set_appearance_mode("dark")  
+    ctk.set_default_color_theme("blue") 
     root = ctk.CTk()
     app = MAKCM_GUI(root)
     root.mainloop()

@@ -17,6 +17,7 @@ extern const char *commandQueue[];
 extern int currentCommandIndex;
 extern bool usbReady;
 
+
 // Mouse position tracking
 extern int16_t mouseX;
 extern int16_t mouseY;

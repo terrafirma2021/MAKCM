@@ -1,112 +1,134 @@
 #include "EspUsbHost.h"
-#include "esp_task_wdt.h"
-#include <driver/timer.h>
-#include "freertos/queue.h"
 #include "esp_log.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <sstream>
-#include <iomanip>
-#include "freertos/semphr.h"
+
 
 bool enableYield = false;
 
 void EspUsbHost::handleIncomingCommands(const String &command)
 {
+    ESP_LOGI("EspUsbHost", "Received command: %s", command.c_str());
+
     if (command == "DEBUG_ON")
     {
         debugModeActive = true;
-        EspUsbHost::current_log_level = LOG_LEVEL_DEBUG;
         serial1Send("Debug mode activated.\n");
-
-        // log(LOG_LEVEL_DEBUG, "Debug mode active. Please remove USB mouse.");  TO DO!!
+        serial1Send("USB_ISDEBUG\n");
+        ESP_LOGI("EspUsbHost", "Debug mode activated.");
     }
     else if (command == "DEBUG_OFF")
     {
-        debugModeActive = false;
-
-        log(LOG_LEVEL_DEBUG, "ESPLOG Inform: Debug mode off. Resetting system.");
-
-        Serial1.print("USB_GOODBYE\n");
-
-        vTaskDelay(pdMS_TO_TICKS(100));
-
-        esp_restart();
-    }
-    else if (command.startsWith("DEBUG_"))
-    {
-        int level = command.substring(6).toInt();
-        if (level >= LOG_LEVEL_OFF && level <= LOG_LEVEL_PARSED)
+        if (USB_IS_DEBUG)
         {
-            EspUsbHost::current_log_level = level;
-            serial1Send("Log level set to %d\n", EspUsbHost::current_log_level);
+            return;
         }
         else
         {
-            serial1Send("Invalid log level: %d\n", level);
+            debugModeActive = false;
+            ESP_LOGI("EspUsbHost", "Debug mode deactivated. System will restart.");
+            Serial1.print("USB_GOODBYE\n");
+            vTaskDelay(pdMS_TO_TICKS(100));
+            esp_restart();
         }
     }
     else if (command == "READY")
     {
-        if (EspUsbHost::deviceConnected)
+        if (debugModeActive)
         {
-            serial1Send("USB_HELLO\n");
+            serial1Send("USB_ISDEBUG\n");
+            ESP_LOGI("EspUsbHost", "Debug mode is active. Sent USB_ISDEBUG.");
         }
         else
         {
-            serial1Send("USB_ISNULL\n");
+            if (EspUsbHost::deviceConnected)
+            {
+                serial1Send("USB_HELLO\n");
+                ESP_LOGI("EspUsbHost", "Device is connected.");
+            }
+            else
+            {
+                serial1Send("USB_ISNULL\n");
+                ESP_LOGW("EspUsbHost", "No device is connected.");
+            }
         }
     }
     else if (command == "USB_INIT")
     {
         deviceMouseReady = true;
+        serial1Send("USB Initialized. Mouse ready.\n");
+        ESP_LOGI("EspUsbHost", "USB initialized. Mouse ready.");
     }
     else if (command == "sendDeviceInfo")
     {
         sendDeviceInfo();
+        serial1Send("Device information sent.\n");
+        ESP_LOGI("EspUsbHost", "Sending device information.");
     }
     else if (command == "sendDescriptorDevice")
     {
         sendDescriptorDevice();
+        serial1Send("Device descriptor sent.\n");
+        ESP_LOGI("EspUsbHost", "Sending device descriptor.");
     }
     else if (command == "sendEndpointDescriptors")
     {
         sendEndpointDescriptors();
+        serial1Send("Endpoint descriptors sent.\n");
+        ESP_LOGI("EspUsbHost", "Sending endpoint descriptors.");
     }
     else if (command == "sendInterfaceDescriptors")
     {
         sendInterfaceDescriptors();
+        serial1Send("Interface descriptors sent.\n");
+        ESP_LOGI("EspUsbHost", "Sending interface descriptors.");
     }
     else if (command == "sendHidDescriptors")
     {
         sendHidDescriptors();
+        serial1Send("HID descriptors sent.\n");
+        ESP_LOGI("EspUsbHost", "Sending HID descriptors.");
     }
     else if (command == "sendIADescriptors")
     {
         sendIADescriptors();
+        serial1Send("Interface Association Descriptors sent.\n");
+        ESP_LOGI("EspUsbHost", "Sending Interface Association Descriptors.");
     }
     else if (command == "sendEndpointData")
     {
         sendEndpointData();
+        serial1Send("Endpoint data sent.\n");
+        ESP_LOGI("EspUsbHost", "Sending endpoint data.");
     }
     else if (command == "sendUnknownDescriptors")
     {
         sendUnknownDescriptors();
+        serial1Send("Unknown descriptors sent.\n");
+        ESP_LOGI("EspUsbHost", "Sending unknown descriptors.");
     }
     else if (command == "sendDescriptorconfig")
     {
         sendDescriptorconfig();
+        serial1Send("Configuration descriptor sent.\n");
+        ESP_LOGI("EspUsbHost", "Sending configuration descriptor.");
     }
     else if (command == "YIELD")
     {
         enableYield = true;
+        serial1Send("Yield enabled.\n");
+        ESP_LOGI("EspUsbHost", "Yield enabled.");
     }
     else if (command == "YIELD_END")
     {
         enableYield = false;
+        serial1Send("Yield disabled.\n");
+        ESP_LOGI("EspUsbHost", "Yield disabled.");
     }
     else
     {
         serial1Send("Unknown command received: %s\n", command.c_str());
+        ESP_LOGW("EspUsbHost", "Unknown command received: %s", command.c_str());
     }
 }

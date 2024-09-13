@@ -17,6 +17,7 @@ extern usb_unknown_descriptor_t unknown_descriptors[MAX_UNKNOWN_DESCRIPTORS];
 extern uint8_t unknownDescriptorCounter;
 extern DescriptorConfiguration configuration_descriptor;
 extern volatile bool deviceConnected;
+extern bool usbIsDebug;
 
 USBHIDMouse Mouse;
 extern ESPUSB USB;

@@ -33,6 +33,7 @@ bool usbReady = false;
 bool processingUsbCommands = false;
 
 
+
 // Create the ring buffers
 void processRingBufferCommand(RingBuf<char, 620> &buffer);
 RingBuf<char, 620> serial0RingBuffer;
@@ -133,7 +134,6 @@ void serial0RX() {
 
             commandBuffer[commandIndex] = '\0';
 
-            // Trim the command
             trimCommand(commandBuffer);
 
             if (strncmp(commandBuffer, "km.move", 7) == 0) {
@@ -172,7 +172,6 @@ void serial1RX() {
 
             commandBuffer[commandIndex] = '\0';
 
-            // Trim the command
             trimCommand(commandBuffer);
 
             if (strncmp(commandBuffer, "km.move", 7) == 0 && !kmMoveCom) {
@@ -183,7 +182,6 @@ void serial1RX() {
         }
     }
 }
-
 
 
 void processRingBufferCommand(RingBuf<char, 620> &buffer) {
@@ -249,6 +247,7 @@ void ledFlashTask(void *parameter) {
 void notifyLedFlashTask() {
     xTaskNotifyGive(ledFlashTaskHandle);
 }
+
 
 void handleUsbHello(const char *command) {
     deviceConnected = true;

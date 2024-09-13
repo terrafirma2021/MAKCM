@@ -22,13 +22,13 @@ void usbLibraryTask(void *arg)
 
         if (err != ESP_OK)
         {
-            instance->log(LOG_LEVEL_ERROR, "usb_host_lib_handle_events() err=%x", err);
+            ESP_LOGE("EspUsbHost", "usb_host_lib_handle_events() err=%x", err);
             continue;
         }
 
         if (instance->clientHandle == NULL || !instance->isClientRegistering)
         {
-            instance->log(LOG_LEVEL_INFO, "Inform: Registering client...");
+            ESP_LOGI("EspUsbHost", "Registering client...");
             const usb_host_client_config_t client_config = {
                 .max_num_event_msg = 10,
                 .async = {
@@ -37,15 +37,15 @@ void usbLibraryTask(void *arg)
                 }};
 
             err = usb_host_client_register(&client_config, &instance->clientHandle);
-            instance->log(LOG_LEVEL_INFO, "Inform: usb_host_client_register() status: %d", err);
+            ESP_LOGI("EspUsbHost", "usb_host_client_register() status: %d", err);
             if (err != ESP_OK)
             {
-                instance->log(LOG_LEVEL_WARN, "Warn: Failed to re-register client, retrying...");
+                ESP_LOGW("EspUsbHost", "Failed to re-register client, retrying...");
                 vTaskDelay(100);
             }
             else
             {
-                instance->log(LOG_LEVEL_INFO, "Inform: Client registered successfully.");
+                ESP_LOGI("EspUsbHost", "Client registered successfully.");
                 instance->isClientRegistering = true;
             }
         }
@@ -63,7 +63,7 @@ void usbClientTask(void *arg)
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
-        esp_err_t err = usb_host_client_handle_events(instance->clientHandle, portMAX_DELAY);
+        usb_host_client_handle_events(instance->clientHandle, portMAX_DELAY);
     }
 }
 
@@ -82,10 +82,7 @@ void EspUsbHost::get_device_status()
     esp_err_t err = usb_host_transfer_alloc(8 + 2, 0, &transfer);
     if (err != ESP_OK)
     {
-        if (LOG_LEVEL_WARN <= EspUsbHost::current_log_level)
-        {
-            log(LOG_LEVEL_WARN, "%s: Warn: usb_host_transfer_alloc() err=%X", TAG, err);
-        }
+        ESP_LOGW(TAG, "usb_host_transfer_alloc() err=%X", err);
         return;
     }
 
@@ -110,32 +107,20 @@ void EspUsbHost::get_device_status()
         if (transfer->status == USB_TRANSFER_STATUS_COMPLETED)
         {
             uint16_t status = (transfer->data_buffer[9] << 8) | transfer->data_buffer[8];
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_INFO, "%s: Inform: Device status: %X", TAG, status);
-            }
+            ESP_LOGI(TAG, "Device status: %X", status);
 
             if (status & (1 << USB_FEATURE_SELECTOR_REMOTE_WAKEUP))
             {
-                if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-                {
-                    usbHost->log(LOG_LEVEL_INFO, "%s: Inform: Remote Wakeup is enabled.", TAG);
-                }
+                ESP_LOGI(TAG, "Remote Wakeup is enabled.");
             }
             else
             {
-                if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-                {
-                    usbHost->log(LOG_LEVEL_INFO, "%s: Inform: Remote Wakeup is disabled.", TAG);
-                }
+                ESP_LOGI(TAG, "Remote Wakeup is disabled.");
             }
         }
         else
         {
-            if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_ERROR, "%s: Error: GET_STATUS transfer failed with status=%X", TAG, transfer->status);
-            }
+            ESP_LOGE(TAG, "GET_STATUS transfer failed with status=%X", transfer->status);
         }
 
         usb_host_transfer_free(transfer);
@@ -146,12 +131,8 @@ void EspUsbHost::get_device_status()
     err = usb_host_transfer_submit_control(clientHandle, transfer);
     if (err != ESP_OK)
     {
-        if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-        {
-            log(LOG_LEVEL_ERROR, "%s: Error: usb_host_transfer_submit_control() err=%X", TAG, err);
-        }
+        ESP_LOGE(TAG, "usb_host_transfer_submit_control() err=%X", err);
         usb_host_transfer_free(transfer);
-        return;
     }
 }
 
@@ -163,10 +144,7 @@ void EspUsbHost::suspend_device()
     esp_err_t err = usb_host_transfer_alloc(8 + 1, 0, &transfer);
     if (err != ESP_OK)
     {
-        if (LOG_LEVEL_WARN <= EspUsbHost::current_log_level)
-        {
-            log(LOG_LEVEL_WARN, "%s: Warn: usb_host_transfer_alloc() err=%X", TAG, err);
-        }
+        ESP_LOGW(TAG, "usb_host_transfer_alloc() err=%X", err);
         return;
     }
 
@@ -188,11 +166,7 @@ void EspUsbHost::suspend_device()
     err = usb_host_transfer_submit_control(clientHandle, transfer);
     if (err != ESP_OK)
     {
-
-        if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-        {
-            log(LOG_LEVEL_ERROR, "%s: Error: usb_host_transfer_submit_control() err=%X", TAG, err);
-        }
+        ESP_LOGE(TAG, "usb_host_transfer_submit_control() err=%X", err);
         usb_host_transfer_free(transfer);
         return;
     }
@@ -201,13 +175,11 @@ void EspUsbHost::suspend_device()
 
     deviceSuspended = true;
 
-    if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-    {
-        log(LOG_LEVEL_INFO, "%s: Inform: Device suspended successfully.", TAG);
-    }
+    ESP_LOGI(TAG, "Device suspended successfully.");
 
     get_device_status();
 }
+
 
 void EspUsbHost::resume_device()
 {
@@ -222,10 +194,7 @@ void EspUsbHost::resume_device()
     esp_err_t err = usb_host_transfer_alloc(8 + 1, 0, &transfer);
     if (err != ESP_OK)
     {
-        if (LOG_LEVEL_WARN <= EspUsbHost::current_log_level)
-        {
-            log(LOG_LEVEL_WARN, "%s: Warn: usb_host_transfer_alloc() err=%X", TAG, err);
-        }
+        ESP_LOGW(TAG, "usb_host_transfer_alloc() err=%X", err);
         return;
     }
 
@@ -247,21 +216,14 @@ void EspUsbHost::resume_device()
     err = usb_host_transfer_submit_control(clientHandle, transfer);
     if (err != ESP_OK)
     {
-
-        if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-        {
-            log(LOG_LEVEL_ERROR, "%s: Error: usb_host_transfer_submit_control() err=%X", TAG, err);
-        }
+        ESP_LOGE(TAG, "usb_host_transfer_submit_control() err=%X", err);
         usb_host_transfer_free(transfer);
         return;
     }
 
     deviceSuspended = false;
 
-    if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-    {
-        log(LOG_LEVEL_INFO, "%s: Inform: Device resumed successfully.", TAG);
-    }
+    ESP_LOGI(TAG, "Device resumed successfully.");
 
     get_device_status();
 }
@@ -285,23 +247,36 @@ String EspUsbHost::getUsbDescString(const usb_str_desc_t *str_desc)
     return str;
 }
 
+
+void EspUsbHost::logRawBytes(const char *functionName, const uint8_t *data, uint16_t length)
+{
+    std::stringstream rawByteStream;
+    
+    for (int i = 0; i < length; ++i)
+    {
+        rawByteStream << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)data[i] << " ";
+    }
+
+    ESP_LOGI(functionName, "Raw Bytes: %s", rawByteStream.str().c_str());
+}
+
 void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
 {
     static uint8_t currentInterfaceNumber;
+
+        logRawBytes("EspUsbHost::onConfig", p, p[0]);
 
     switch (bDescriptorType)
     {
     case USB_DEVICE_DESC:
     {
-        if (EspUsbHost::current_log_level >= LOG_LEVEL_PARSED)
-        {
-            // Log the raw bytes first
-            // logRawBytes(p, p[0], "USB_DEVICE_DESC Raw Data");
-        }
+        // Log raw bytes for USB_DEVICE_DESC
+        logRawBytes("USB_DEVICE_DESC", p, p[0]); 
+        ESP_LOGI("EspUsbHost::onConfig", "Descriptor Type: USB_DEVICE_DESC");
 
         const usb_device_desc_t *dev_desc = (const usb_device_desc_t *)p;
 
-        // Assign each field individually to ensure type compatibility
+        // Assign fields to ensure type compatibility
         descriptor_device.bLength = dev_desc->bLength;
         descriptor_device.bDescriptorType = dev_desc->bDescriptorType;
         descriptor_device.bcdUSB = dev_desc->bcdUSB;
@@ -317,18 +292,14 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
         descriptor_device.iSerialNumber = dev_desc->iSerialNumber;
         descriptor_device.bNumConfigurations = dev_desc->bNumConfigurations;
 
-        // Log the device descriptor
-    //    logDeviceDescriptor(*dev_desc);
         break;
     }
 
     case USB_STRING_DESC:
     {
-        if (EspUsbHost::current_log_level >= LOG_LEVEL_PARSED)
-        {
-            // Log the raw bytes first
-            // logRawBytes(p, p[0], "USB_STRING_DESC Raw Data");
-        }
+        // Log raw bytes for USB_STRING_DESC
+        logRawBytes("USB_STRING_DESC", p, p[0]);
+        ESP_LOGI("EspUsbHost::onConfig", "Descriptor Type: USB_STRING_DESC");
 
         const usb_standard_desc_t *desc = (const usb_standard_desc_t *)p;
         usb_string_descriptor_t usbStringDescriptor;
@@ -344,40 +315,28 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
             }
             usbStringDescriptor.data += String(desc->val[i], HEX) + " ";
         }
-        // Log the string descriptor
-     //   logStringDescriptor(usbStringDescriptor);
+
         break;
     }
 
     case USB_INTERFACE_DESC:
     {
-        if (EspUsbHost::current_log_level >= LOG_LEVEL_PARSED)
-        {
-            // Log the raw bytes first
-            // logRawBytes(p, p[0], "USB_INTERFACE_DESC Raw Data");
-        }
+        // Log raw bytes for USB_INTERFACE_DESC
+        logRawBytes("USB_INTERFACE_DESC", p, p[0]);
+        ESP_LOGI("EspUsbHost::onConfig", "Descriptor Type: USB_INTERFACE_DESC");
 
         const usb_intf_desc_t *intf = (const usb_intf_desc_t *)p;
-
-        // Log the interface descriptor
-    //    logInterfaceDescriptor(*intf);
 
         if (interfaceCounter < MAX_INTERFACE_DESCRIPTORS)
         {
             this->claim_err = usb_host_interface_claim(this->clientHandle, this->deviceHandle, intf->bInterfaceNumber, intf->bAlternateSetting);
             if (this->claim_err != ESP_OK)
             {
-                if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-                {
-                    log(LOG_LEVEL_ERROR, "USB: Error: usb_host_interface_claim() err=%x", this->claim_err);
-                }
+                ESP_LOGE("EspUsbHost", "usb_host_interface_claim() err=%x", this->claim_err);
             }
             else
             {
-                if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-                {
-                    log(LOG_LEVEL_INFO, "USB: Inform: usb_host_interface_claim() ESP_OK");
-                }
+                ESP_LOGI("EspUsbHost", "usb_host_interface_claim() successful for interface %d", intf->bInterfaceNumber);
                 this->usbInterface[this->usbInterfaceSize] = intf->bInterfaceNumber;
                 this->usbInterfaceSize++;
 
@@ -397,16 +356,11 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
 
     case USB_ENDPOINT_DESC:
     {
-        if (EspUsbHost::current_log_level >= LOG_LEVEL_PARSED)
-        {
-            // Log the raw bytes first
-            // logRawBytes(p, p[0], "USB_ENDPOINT_DESC Raw Data");
-        }
+        // Log raw bytes for USB_ENDPOINT_DESC
+        logRawBytes("USB_ENDPOINT_DESC", p, p[0]);
+        ESP_LOGI("EspUsbHost::onConfig", "Descriptor Type: USB_ENDPOINT_DESC");
 
         const usb_ep_desc_t *ep_desc = (const usb_ep_desc_t *)p;
-
-        // Log the endpoint descriptor
-     //   logEndpointDescriptor(*ep_desc);
 
         if (endpointCounter < MAX_ENDPOINT_DESCRIPTORS)
         {
@@ -417,20 +371,17 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
             endpoint_descriptors[endpointCounter].direction = USB_EP_DESC_GET_EP_DIR(ep_desc) ? "IN" : "OUT";
             endpoint_descriptors[endpointCounter].bmAttributes = ep_desc->bmAttributes;
             endpoint_descriptors[endpointCounter].attributes =
-                (ep_desc->bmAttributes & USB_BM_ATTRIBUTES_XFERTYPE_MASK) == USB_BM_ATTRIBUTES_XFER_CONTROL ? "CTRL" : (ep_desc->bmAttributes & USB_BM_ATTRIBUTES_XFERTYPE_MASK) == USB_BM_ATTRIBUTES_XFER_ISOC ? "ISOC"
-                                                                                                                   : (ep_desc->bmAttributes & USB_BM_ATTRIBUTES_XFERTYPE_MASK) == USB_BM_ATTRIBUTES_XFER_BULK   ? "BULK"
-                                                                                                                   : (ep_desc->bmAttributes & USB_BM_ATTRIBUTES_XFERTYPE_MASK) == USB_BM_ATTRIBUTES_XFER_INT    ? "Interrupt"
-                                                                                                                                                                                                                : "";
+                (ep_desc->bmAttributes & USB_BM_ATTRIBUTES_XFERTYPE_MASK) == USB_BM_ATTRIBUTES_XFER_CONTROL ? "CTRL" :
+                (ep_desc->bmAttributes & USB_BM_ATTRIBUTES_XFERTYPE_MASK) == USB_BM_ATTRIBUTES_XFER_ISOC ? "ISOC" :
+                (ep_desc->bmAttributes & USB_BM_ATTRIBUTES_XFERTYPE_MASK) == USB_BM_ATTRIBUTES_XFER_BULK ? "BULK" :
+                "Interrupt";
 
             endpoint_descriptors[endpointCounter].wMaxPacketSize = ep_desc->wMaxPacketSize;
             endpoint_descriptors[endpointCounter].bInterval = ep_desc->bInterval;
 
             if (this->claim_err != ESP_OK)
             {
-                if (LOG_LEVEL_WARN <= EspUsbHost::current_log_level)
-                {
-                    log(LOG_LEVEL_WARN, "USB: Warn: claim_err encountered, skipping further processing");
-                }
+                ESP_LOGW("EspUsbHost", "Skipping endpoint due to claim_err.");
                 return;
             }
 
@@ -443,10 +394,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
 
             if ((ep_desc->bmAttributes & USB_BM_ATTRIBUTES_XFERTYPE_MASK) != USB_BM_ATTRIBUTES_XFER_INT)
             {
-                if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-                {
-                    log(LOG_LEVEL_ERROR, "USB: Error: Unsupported transfer type, bmAttributes=%x", ep_desc->bmAttributes);
-                }
+                ESP_LOGE("EspUsbHost", "Unsupported transfer type: bmAttributes=%x", ep_desc->bmAttributes);
                 return;
             }
 
@@ -456,18 +404,12 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
                 if (err != ESP_OK)
                 {
                     this->usbTransfer[this->usbTransferSize] = NULL;
-                    if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-                    {
-                        log(LOG_LEVEL_ERROR, "USB: Error: usb_host_transfer_alloc() failed with err=%x", err);
-                    }
+                    ESP_LOGE("EspUsbHost", "usb_host_transfer_alloc() failed with err=%x", err);
                     return;
                 }
                 else
                 {
-                    if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-                    {
-                        log(LOG_LEVEL_INFO, "USB: Inform: usb_host_transfer_alloc() successful, data_buffer_size=%d", ep_desc->wMaxPacketSize + 1);
-                    }
+                    ESP_LOGI("EspUsbHost", "usb_host_transfer_alloc() successful, data_buffer_size=%d", ep_desc->wMaxPacketSize + 1);
                 }
 
                 this->usbTransfer[this->usbTransferSize]->device_handle = this->deviceHandle;
@@ -479,18 +421,12 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
                 isReady = true;
                 this->usbTransferSize++;
 
-                if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-                {
-                    log(LOG_LEVEL_INFO, "USB: Inform: Preparing to submit transfer for endpoint 0x%x", ep_desc->bEndpointAddress);
-                }
+                ESP_LOGI("EspUsbHost", "Submitting transfer for endpoint 0x%x", ep_desc->bEndpointAddress);
 
                 err = usb_host_transfer_submit(this->usbTransfer[this->usbTransferSize - 1]);
                 if (err != ESP_OK)
                 {
-                    if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-                    {
-                        log(LOG_LEVEL_ERROR, "USB: Error: usb_host_transfer_submit() failed with err=%x", err);
-                    }
+                    ESP_LOGE("EspUsbHost", "usb_host_transfer_submit() failed with err=%x", err);
                 }
             }
 
@@ -502,15 +438,11 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
 
     case USB_INTERFACE_ASSOC_DESC:
     {
-        if (EspUsbHost::current_log_level >= LOG_LEVEL_PARSED)
-        {
-            // Log the raw bytes first
-            // logRawBytes(p, p[0], "USB_INTERFACE_ASSOC_DESC Raw Data");
-        }
+        // Log raw bytes for USB_INTERFACE_ASSOC_DESC
+        logRawBytes("USB_INTERFACE_ASSOC_DESC", p, p[0]);   // did not log 
+        ESP_LOGI("EspUsbHost::onConfig", "Descriptor Type: USB_INTERFACE_ASSOC_DESC");
 
         const usb_iad_desc_t *iad_desc = (const usb_iad_desc_t *)p;
-
-    //    logInterfaceAssociationDescriptor(*iad_desc);
 
         descriptor_interface_association.bLength = iad_desc->bLength;
         descriptor_interface_association.bDescriptorType = iad_desc->bDescriptorType;
@@ -526,15 +458,11 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
 
     case USB_HID_DESC:
     {
-        if (EspUsbHost::current_log_level >= LOG_LEVEL_PARSED)
-        {
-            // Log the raw bytes first
-            // logRawBytes(p, p[0], "USB_HID_DESC Raw Data");
-        }
+        // Log raw bytes for USB_HID_DESC
+        logRawBytes("USB_HID_DESC", p, p[0]);
+        ESP_LOGI("EspUsbHost::onConfig", "Descriptor Type: USB_HID_DESC");
 
         const tusb_hid_descriptor_hid_t *hid_desc = (const tusb_hid_descriptor_hid_t *)p;
-
-     //   logHIDDescriptor(*hid_desc);
 
         if (hidDescriptorCounter < MAX_HID_DESCRIPTORS)
         {
@@ -554,17 +482,15 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
 
         break;
     }
+
     case USB_CONFIGURATION_DESC:
     {
-        if (EspUsbHost::current_log_level >= LOG_LEVEL_PARSED)
-        {
-            // Log the raw bytes first
-            // logRawBytes(p, p[0], "USB_CONFIGURATION_DESC Raw Data");
-        }
+        // Log raw bytes for USB_CONFIGURATION_DESC
+        logRawBytes("USB_CONFIGURATION_DESC", p, p[0]);
+        ESP_LOGI("EspUsbHost::onConfig", "Descriptor Type: USB_CONFIGURATION_DESC");
 
         const usb_config_desc_t *config_desc = (const usb_config_desc_t *)p;
 
-        // Log the configuration descriptor fields
         configurationDescriptor.bLength = config_desc->bLength;
         configurationDescriptor.bDescriptorType = config_desc->bDescriptorType;
         configurationDescriptor.wTotalLength = config_desc->wTotalLength;
@@ -579,38 +505,13 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
 
     default:
     {
-        if (EspUsbHost::current_log_level >= LOG_LEVEL_PARSED)
-        {
-            // Log the raw bytes first
-            // logRawBytes(p, p[0], "Unknown Descriptor Raw Data");
-        }
-
-        const usb_standard_desc_t *desc = (const usb_standard_desc_t *)p;
-
-     //   logUnknownDescriptor(*desc);
-
-        if (unknownDescriptorCounter < MAX_UNKNOWN_DESCRIPTORS)
-        {
-            unknown_descriptors[unknownDescriptorCounter].bLength = desc->bLength;
-            unknown_descriptors[unknownDescriptorCounter].bDescriptorType = desc->bDescriptorType;
-            unknown_descriptors[unknownDescriptorCounter].data = "";
-
-            for (int i = 0; i < (desc->bLength - 2); i++)
-            {
-                if (desc->val[i] < 16)
-                {
-                    unknown_descriptors[unknownDescriptorCounter].data += "0";
-                }
-                unknown_descriptors[unknownDescriptorCounter].data += String(desc->val[i], HEX) + " ";
-            }
-
-            unknownDescriptorCounter++;
-        }
+        // Log raw bytes for unknown descriptor type
+        logRawBytes("Unknown", p, p[0]);
+        ESP_LOGI("EspUsbHost::onConfig", "Descriptor Type: Unknown (0x%02X)", bDescriptorType);
         break;
     }
     }
 }
-
 
 
 void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMsg, void *arg)
@@ -618,14 +519,20 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
     EspUsbHost *usbHost = static_cast<EspUsbHost *>(arg);
     esp_err_t err;
 
+    // Helper function to log raw bytes using std::stringstream
+    auto logRawBytes = [](const char* descriptorType, const uint8_t* data, uint8_t length) {
+        std::stringstream rawByteStream;
+        for (int i = 0; i < length; ++i) {
+            rawByteStream << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)data[i] << " ";
+        }
+        ESP_LOGI("EspUsbHost::_clientEventCallback", "Raw Bytes (%s): %s", descriptorType, rawByteStream.str().c_str());
+    };
+
     switch (eventMsg->event)
     {
     case USB_HOST_CLIENT_EVENT_NEW_DEV:
     {
-        if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-        {
-            usbHost->log(LOG_LEVEL_INFO, "Inform: DEVICE CONNECTED");
-        }
+        ESP_LOGI("EspUsbHost::_clientEventCallback", "Device connected");
 
         EspUsbHost::deviceConnected = true;
         usbHost->endpointCounter = 0;
@@ -634,39 +541,26 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
         usbHost->unknownDescriptorCounter = 0;
         memset(usbHost->endpoint_data_list, 0, sizeof(usbHost->endpoint_data_list));
 
-        if (LOG_LEVEL_DEBUG <= EspUsbHost::current_log_level)
-        {
-            usbHost->log(LOG_LEVEL_DEBUG, "Debug: Event message raw bytes:");
-            for (size_t i = 0; i < sizeof(usb_host_client_event_msg_t); ++i)
-            {
-                usbHost->log(LOG_LEVEL_DEBUG, "0x%02X ", ((uint8_t *)eventMsg)[i]);
-            }
-            usbHost->log(LOG_LEVEL_DEBUG, "\n");
-        }
+        ESP_LOGD("EspUsbHost", "New device event detected. Raw event message:");
+
+        logRawBytes("New Device Event Message", (const uint8_t *)eventMsg, sizeof(usb_host_client_event_msg_t));
 
         err = usb_host_device_open(usbHost->clientHandle, eventMsg->new_dev.address, &usbHost->deviceHandle);
         if (err != ESP_OK)
         {
-            if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_ERROR, "Error: Failed to open device with address %d", eventMsg->new_dev.address);
-            }
+            ESP_LOGE("EspUsbHost", "Failed to open device with address %d. Error: %d", eventMsg->new_dev.address, err);
             return;
         }
 
-        if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-        {
-            usbHost->log(LOG_LEVEL_INFO, "Inform: Device opened successfully");
-        }
+        ESP_LOGI("EspUsbHost", "Device opened successfully");
 
         usb_device_info_t dev_info;
         err = usb_host_device_info(usbHost->deviceHandle, &dev_info);
         if (err == ESP_OK)
         {
-            if (EspUsbHost::current_log_level <= LOG_LEVEL_PARSED)
-            {
-                // usbHost->logRawBytes((uint8_t *)&dev_info, sizeof(usb_device_info_t), "USB Device Information Raw Data");
-            }
+            ESP_LOGD("EspUsbHost", "Retrieved device info. Raw device info:");
+
+            logRawBytes("Device Info", (const uint8_t *)&dev_info, sizeof(usb_device_info_t));
 
             usbHost->device_info.speed = dev_info.speed;
             usbHost->device_info.dev_addr = dev_info.dev_addr;
@@ -676,33 +570,23 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
             strcpy(usbHost->device_info.str_desc_product, getUsbDescString(dev_info.str_desc_product).c_str());
             strcpy(usbHost->device_info.str_desc_serial_num, getUsbDescString(dev_info.str_desc_serial_num).c_str());
 
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_INFO, "Inform: Device info retrieved successfully");
-            }
-
-            if (LOG_LEVEL_DEBUG <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_DEBUG, "Debug: Device info raw bytes:");
-                for (size_t i = 0; i < sizeof(usb_device_info_t); ++i)
-                {
-                    usbHost->log(LOG_LEVEL_DEBUG, "0x%02X ", ((uint8_t *)&dev_info)[i]);
-                }
-                usbHost->log(LOG_LEVEL_DEBUG, "\n");
-            }
+            ESP_LOGI("EspUsbHost", "Device info retrieved successfully");
         }
         else
         {
-            if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_ERROR, "Error: Failed to retrieve device info, err=%d", err);
-            }
+            ESP_LOGE("EspUsbHost", "Failed to retrieve device info. Error: %d", err);
         }
 
         const usb_device_desc_t *dev_desc;
         err = usb_host_get_device_descriptor(usbHost->deviceHandle, &dev_desc);
         if (err == ESP_OK)
         {
+            ESP_LOGI("EspUsbHost::_clientEventCallback", "Device descriptor retrieved successfully");
+
+            // Log raw bytes for the device descriptor
+            logRawBytes("Device Descriptor", (const uint8_t *)dev_desc, sizeof(usb_device_desc_t));
+
+            // Field-by-field assignment of the descriptor
             usbHost->descriptor_device.bLength = dev_desc->bLength;
             usbHost->descriptor_device.bDescriptorType = dev_desc->bDescriptorType;
             usbHost->descriptor_device.bcdUSB = dev_desc->bcdUSB;
@@ -717,34 +601,19 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
             usbHost->descriptor_device.iProduct = dev_desc->iProduct;
             usbHost->descriptor_device.iSerialNumber = dev_desc->iSerialNumber;
             usbHost->descriptor_device.bNumConfigurations = dev_desc->bNumConfigurations;
-
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_INFO, "Inform: Device descriptor retrieved successfully");
-            }
-
-            if (LOG_LEVEL_DEBUG <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_DEBUG, "Debug: Device descriptor raw bytes:");
-                for (size_t i = 0; i < sizeof(usb_device_desc_t); ++i)
-                {
-                    usbHost->log(LOG_LEVEL_DEBUG, "0x%02X ", ((uint8_t *)dev_desc)[i]);
-                }
-                usbHost->log(LOG_LEVEL_DEBUG, "\n");
-            }
         }
         else
         {
-            if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_ERROR, "Error: Failed to retrieve device descriptor, err=%d", err);
-            }
+            ESP_LOGE("EspUsbHost", "Failed to retrieve device descriptor. Error: %d", err);
         }
 
         const usb_config_desc_t *config_desc;
         err = usb_host_get_active_config_descriptor(usbHost->deviceHandle, &config_desc);
         if (err == ESP_OK)
         {
+            // Log raw bytes for the configuration descriptor
+            logRawBytes("Configuration Descriptor", (const uint8_t *)config_desc, config_desc->wTotalLength);
+
             usbHost->descriptor_configuration.bLength = config_desc->bLength;
             usbHost->descriptor_configuration.bDescriptorType = config_desc->bDescriptorType;
             usbHost->descriptor_configuration.wTotalLength = config_desc->wTotalLength;
@@ -754,29 +623,13 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
             usbHost->descriptor_configuration.bmAttributes = config_desc->bmAttributes;
             usbHost->descriptor_configuration.bMaxPower = config_desc->bMaxPower * 2;
 
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_INFO, "Inform: Configuration descriptor retrieved successfully");
-            }
-
-            if (LOG_LEVEL_DEBUG <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_DEBUG, "Debug: Configuration descriptor raw bytes:");
-                for (size_t i = 0; i < config_desc->wTotalLength; ++i)
-                {
-                    usbHost->log(LOG_LEVEL_DEBUG, "0x%02X ", ((uint8_t *)config_desc)[i]);
-                }
-                usbHost->log(LOG_LEVEL_DEBUG, "\n");
-            }
+            ESP_LOGI("EspUsbHost::_clientEventCallback", "Configuration descriptor retrieved successfully");
 
             usbHost->_configCallback(config_desc);
         }
         else
         {
-            if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_ERROR, "Error: Failed to retrieve configuration descriptor, err=%d", err);
-            }
+            ESP_LOGE("EspUsbHost", "Failed to retrieve configuration descriptor. Error: %d", err);
         }
 
         break;
@@ -784,116 +637,14 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
 
     case USB_HOST_CLIENT_EVENT_DEV_GONE:
     {
-        if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-        {
-            usbHost->log(LOG_LEVEL_INFO, "Inform: Device disconnected");
-        }
+        ESP_LOGI("EspUsbHost::_clientEventCallback", "Device disconnected");
 
         usbHost->isReady = false;
         EspUsbHost::deviceConnected = false;
         deviceMouseReady = false;
 
-        if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-        {
-            usbHost->log(LOG_LEVEL_INFO, "Inform: Clearing USB transfers");
-        }
-
-        // Clear and free USB transfers
-        for (int i = 0; i < usbHost->usbTransferSize; i++)
-        {
-            if (usbHost->usbTransfer[i] == NULL)
-            {
-                continue;
-            }
-
-            err = usb_host_transfer_free(usbHost->usbTransfer[i]);
-            if (err == ESP_OK)
-            {
-                if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-                {
-                    usbHost->log(LOG_LEVEL_INFO, "Inform: Freed USB transfer at index %d", i);
-                }
-                usbHost->usbTransfer[i] = NULL;
-            }
-            else
-            {
-                if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-                {
-                    usbHost->log(LOG_LEVEL_ERROR, "Error: Failed to free USB transfer at index %d, err=%d", i, err);
-                }
-            }
-        }
-        usbHost->usbTransferSize = 0;
-
-        if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-        {
-            usbHost->log(LOG_LEVEL_INFO, "Inform: Releasing USB interfaces");
-        }
-
-        // Release interfaces
-        for (int i = 0; i < usbHost->usbInterfaceSize; i++)
-        {
-            err = usb_host_interface_release(usbHost->clientHandle, usbHost->deviceHandle, usbHost->usbInterface[i]);
-            if (err == ESP_OK)
-            {
-                if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-                {
-                    usbHost->log(LOG_LEVEL_INFO, "Inform: Released USB interface at index %d", i);
-                }
-                usbHost->usbInterface[i] = 0;
-            }
-            else
-            {
-                if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-                {
-                    usbHost->log(LOG_LEVEL_ERROR, "Error: Failed to release USB interface at index %d, err=%d", i, err);
-                }
-            }
-        }
-        usbHost->usbInterfaceSize = 0;
-
-        if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-        {
-            usbHost->log(LOG_LEVEL_INFO, "Inform: Closing USB device");
-        }
-
-        err = usb_host_device_close(usbHost->clientHandle, usbHost->deviceHandle);
-        if (err != ESP_OK)
-        {
-            if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_ERROR, "Error: Failed to close device, err=%d", err);
-            }
-            usbHost->serial1Send("Error closing device\n"); // Use serial1Send instead of Serial1
-        }
-        else
-        {
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_INFO, "Inform: Device closed successfully");
-            }
-        }
-
-        usbHost->isReady = false;
-        usbHost->isClientRegistering = false;
-
-        if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-        {
-            usbHost->log(LOG_LEVEL_INFO, "Inform: Notifying system of device disconnection");
-        }
-
-        usbHost->onGone(eventMsg);
-
-        if (!usbHost->debugModeActive)
-        {
-            usbHost->serial1Send("USB_GOODBYE\n");
-        }
-        else
-        {
-            usbHost->log(LOG_LEVEL_DEBUG, "Please reinsert USB mouse to begin logging!!");
-        }
-
-        usbHost->serial1Send("MOUSE DISCONNECTED\n");
+        ESP_LOGI("EspUsbHost", "Notifying cleanup task...");
+        xTaskNotifyGive(usbHost->cleanupTaskHandle); // Notify the cleanup task to start the process
 
         break;
     }
@@ -903,15 +654,67 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
     }
 }
 
+void EspUsbHost::cleanupTask(void *arg)
+{
+    EspUsbHost *usbHost = static_cast<EspUsbHost *>(arg);
+
+    while (true) {
+        // Wait for notification from the event callback (blocking)
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY); 
+
+        // Cleanup procedure starts after notification
+        ESP_LOGI("EspUsbHost", "Starting cleanup...");
+
+        esp_err_t err;
+
+        // Clear and free USB transfers
+        for (int i = 0; i < usbHost->usbTransferSize; i++) {
+            if (usbHost->usbTransfer[i] != NULL) {
+                err = usb_host_transfer_free(usbHost->usbTransfer[i]);
+                if (err == ESP_OK) {
+                    ESP_LOGI("EspUsbHost", "Freed USB transfer at index %d", i);
+                    usbHost->usbTransfer[i] = NULL;
+                } else {
+                    ESP_LOGE("EspUsbHost", "Failed to free USB transfer at index %d. Error: %d", i, err);
+                }
+            }
+        }
+        usbHost->usbTransferSize = 0;
+
+        // Release USB interfaces
+        for (int i = 0; i < usbHost->usbInterfaceSize; i++) {
+            err = usb_host_interface_release(usbHost->clientHandle, usbHost->deviceHandle, usbHost->usbInterface[i]);
+            if (err == ESP_OK) {
+                ESP_LOGI("EspUsbHost", "Released USB interface at index %d", i);
+                usbHost->usbInterface[i] = 0;
+            } else {
+                ESP_LOGE("EspUsbHost", "Failed to release USB interface at index %d. Error: %d", i, err);
+            }
+        }
+        usbHost->usbInterfaceSize = 0;
+
+        // Close USB device
+        err = usb_host_device_close(usbHost->clientHandle, usbHost->deviceHandle);
+        if (err == ESP_OK) {
+            ESP_LOGI("EspUsbHost", "Device closed successfully");
+        } else {
+            ESP_LOGE("EspUsbHost", "Failed to close device. Error: %d", err);
+        }
+
+        usbHost->deviceHandle = NULL;
+        usbHost->isReady = false;
+
+        ESP_LOGI("EspUsbHost", "Cleanup completed.");
+    }
+}
+
+
 void EspUsbHost::_configCallback(const usb_config_desc_t *config_desc)
 {
     const uint8_t *p = &config_desc->val[0];
     uint8_t bLength;
 
-    if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-    {
-        this->log(LOG_LEVEL_INFO, "Inform: Starting configuration descriptor processing");
-    }
+    ESP_LOGI("EspUsbHost", "Starting configuration descriptor processing");
 
     const uint8_t setup[8] = {
         0x80, 0x06, 0x00, 0x02, 0x00, 0x00, (uint8_t)config_desc->wTotalLength, 0x00};
@@ -924,28 +727,20 @@ void EspUsbHost::_configCallback(const usb_config_desc_t *config_desc)
         {
             const uint8_t bDescriptorType = *(p + 1);
 
-            if (LOG_LEVEL_DEBUG <= EspUsbHost::current_log_level)
-            {
-                this->log(LOG_LEVEL_DEBUG, "Debug: Processing descriptor of type: 0x%02X", bDescriptorType);
-            }
+            ESP_LOGD("EspUsbHost", "Processing descriptor of type: 0x%02X", bDescriptorType);
 
             this->onConfig(bDescriptorType, p);
         }
         else
         {
-            if (LOG_LEVEL_WARN <= EspUsbHost::current_log_level)
-            {
-                this->log(LOG_LEVEL_WARN, "Warn: Descriptor length exceeds total configuration length");
-            }
+            ESP_LOGW("EspUsbHost", "Descriptor length exceeds total configuration length");
             return;
         }
     }
 
-    if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-    {
-        this->log(LOG_LEVEL_INFO, "Inform: Completed configuration descriptor processing");
-    }
+    ESP_LOGI("EspUsbHost", "Completed configuration descriptor processing");
 }
+
 
 void EspUsbHost::_onReceiveControl(usb_transfer_t *transfer)
 {
@@ -954,30 +749,16 @@ void EspUsbHost::_onReceiveControl(usb_transfer_t *transfer)
     {
         return;
     }
-    if (EspUsbHost::current_log_level <= LOG_LEVEL_PARSED)
-    {
-        // usbHost->logRawBytes(transfer->data_buffer, transfer->actual_num_bytes, "Control Transfer Response Raw Data");
-    }
+
+     usbHost->logRawBytes("EspUsbHost::_onReceiveControl", transfer->data_buffer, transfer->actual_num_bytes);
 
     bool isMouse = false;
-    uint8_t *p = &transfer->data_buffer[8];
+    uint8_t *p = &transfer->data_buffer[8];  // Skip the first 8 bytes for processing
     int totalBytes = transfer->actual_num_bytes;
 
-    if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-    {
-        usbHost->log(LOG_LEVEL_INFO, "onReceiveControl called with %d bytes", totalBytes);
-    }
+    ESP_LOGI("EspUsbHost", "onReceiveControl called with %d bytes", totalBytes);
 
-    if (LOG_LEVEL_DEBUG <= EspUsbHost::current_log_level)
-    {
-        std::ostringstream rawDataStream;
-        for (int i = 0; i < totalBytes; ++i)
-        {
-            rawDataStream << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << static_cast<int>(p[i]) << " ";
-        }
-        usbHost->log(LOG_LEVEL_DEBUG, "Raw data: %s", rawDataStream.str().c_str());
-    }
-
+    // Check if it's a mouse
     for (int i = 0; i < totalBytes - 3; i++)
     {
         if (p[i] == 0x05 && p[i + 1] == 0x01 && p[i + 2] == 0x09 && p[i + 3] == 0x02)
@@ -989,30 +770,129 @@ void EspUsbHost::_onReceiveControl(usb_transfer_t *transfer)
 
     if (!isMouse)
     {
-        if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-        {
-            usbHost->log(LOG_LEVEL_INFO, "Device is not a mouse, skipping further processing");
-        }
+        ESP_LOGI("EspUsbHost", "Device is not a mouse, skipping further processing");
         usb_host_transfer_free(transfer);
         return;
     }
 
-    if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-    {
-        usbHost->log(LOG_LEVEL_INFO, "Mouse device detected, parsing HID report descriptor");
-    }
+    ESP_LOGI("EspUsbHost", "Mouse device detected, parsing HID report descriptor");
 
     HIDReportDescriptor descriptor = usbHost->parseHIDReportDescriptor(&transfer->data_buffer[8], transfer->actual_num_bytes - 8);
 
     usb_host_transfer_free(transfer);
 }
 
+
+void EspUsbHost::onMouse(hid_mouse_report_t report, uint8_t last_buttons)
+{
+    ESP_LOGI("EspUsbHost", "Mouse event detected");
+
+    ESP_LOGD("EspUsbHost", 
+             "Mouse State: last_buttons=0x%02x(%c%c%c%c%c), buttons=0x%02x(%c%c%c%c%c), x=%d, y=%d, wheel=%d",
+             last_buttons,
+             (last_buttons & MOUSE_BUTTON_LEFT) ? 'L' : ' ',
+             (last_buttons & MOUSE_BUTTON_RIGHT) ? 'R' : ' ',
+             (last_buttons & MOUSE_BUTTON_MIDDLE) ? 'M' : ' ',
+             (last_buttons & MOUSE_BUTTON_BACKWARD) ? 'B' : ' ',
+             (last_buttons & MOUSE_BUTTON_FORWARD) ? 'F' : ' ',
+             report.buttons,
+             (report.buttons & MOUSE_BUTTON_LEFT) ? 'L' : ' ',
+             (report.buttons & MOUSE_BUTTON_RIGHT) ? 'R' : ' ',
+             (report.buttons & MOUSE_BUTTON_MIDDLE) ? 'M' : ' ',
+             (report.buttons & MOUSE_BUTTON_BACKWARD) ? 'B' : ' ',
+             (report.buttons & MOUSE_BUTTON_FORWARD) ? 'F' : ' ',
+             report.x,
+             report.y,
+             report.wheel);
+}
+
+
+void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
+{
+    if (deviceMouseReady)
+    {
+        if (!(last_buttons & MOUSE_BUTTON_LEFT) && (report.buttons & MOUSE_BUTTON_LEFT))
+        {
+            serial1Send("km.left(1)\n");
+            ESP_LOGI("EspUsbHost", "Left mouse button pressed");
+        }
+        if ((last_buttons & MOUSE_BUTTON_LEFT) && !(report.buttons & MOUSE_BUTTON_LEFT))
+        {
+            serial1Send("km.left(0)\n");
+            ESP_LOGI("EspUsbHost", "Left mouse button released");
+        }
+
+        if (!(last_buttons & MOUSE_BUTTON_RIGHT) && (report.buttons & MOUSE_BUTTON_RIGHT))
+        {
+            serial1Send("km.right(1)\n");
+            ESP_LOGI("EspUsbHost", "Right mouse button pressed");
+        }
+        if ((last_buttons & MOUSE_BUTTON_RIGHT) && !(report.buttons & MOUSE_BUTTON_RIGHT))
+        {
+            serial1Send("km.right(0)\n");
+            ESP_LOGI("EspUsbHost", "Right mouse button released");
+        }
+
+        if (!(last_buttons & MOUSE_BUTTON_MIDDLE) && (report.buttons & MOUSE_BUTTON_MIDDLE))
+        {
+            serial1Send("km.middle(1)\n");
+            ESP_LOGI("EspUsbHost", "Middle mouse button pressed");
+        }
+        if ((last_buttons & MOUSE_BUTTON_MIDDLE) && !(report.buttons & MOUSE_BUTTON_MIDDLE))
+        {
+            serial1Send("km.middle(0)\n");
+            ESP_LOGI("EspUsbHost", "Middle mouse button released");
+        }
+
+        if (!(last_buttons & MOUSE_BUTTON_FORWARD) && (report.buttons & MOUSE_BUTTON_FORWARD))
+        {
+            serial1Send("km.side1(1)\n");
+            ESP_LOGI("EspUsbHost", "Forward mouse button pressed");
+        }
+        if ((last_buttons & MOUSE_BUTTON_FORWARD) && !(report.buttons & MOUSE_BUTTON_FORWARD))
+        {
+            serial1Send("km.side1(0)\n");
+            ESP_LOGI("EspUsbHost", "Forward mouse button released");
+        }
+
+        if (!(last_buttons & MOUSE_BUTTON_BACKWARD) && (report.buttons & MOUSE_BUTTON_BACKWARD))
+        {
+            serial1Send("km.side2(1)\n");
+            ESP_LOGI("EspUsbHost", "Backward mouse button pressed");
+        }
+        if ((last_buttons & MOUSE_BUTTON_BACKWARD) && !(report.buttons & MOUSE_BUTTON_BACKWARD))
+        {
+            serial1Send("km.side2(0)\n");
+            ESP_LOGI("EspUsbHost", "Backward mouse button released");
+        }
+    }
+}
+
+
+void EspUsbHost::onMouseMove(hid_mouse_report_t report)
+{
+    if (deviceMouseReady)
+    {
+        if (report.wheel != 0)
+        {
+            serial1Send("km.wheel(%d)\n", report.wheel);
+            ESP_LOGI("EspUsbHost", "Mouse wheel moved, value=%d", report.wheel);
+        }
+        else
+        {
+            serial1Send("km.move(%d,%d)\n", report.x, report.y);
+            ESP_LOGI("EspUsbHost", "Mouse moved, x=%d, y=%d", report.x, report.y);
+        }
+    }
+}
+
+
 void EspUsbHost::_onReceive(usb_transfer_t *transfer)
 {
     EspUsbHost *usbHost = static_cast<EspUsbHost *>(transfer->context);
     if (!usbHost)
     {
-        ESP_LOGE("EspUsbHost", "Error: Context pointer is null in _onReceive");
+        ESP_LOGE("EspUsbHost::_onReceive", "Error: Context pointer is null in _onReceive");
         usb_host_transfer_free(transfer);
         return;
     }
@@ -1021,11 +901,7 @@ void EspUsbHost::_onReceive(usb_transfer_t *transfer)
     unsigned long currentTime = millis();
     if (currentTime - lastLogTime >= 250)
     {
-        if (EspUsbHost::current_log_level <= LOG_LEVEL_PARSED)
-        {
-            // usbHost->logRawBytes(transfer->data_buffer, transfer->actual_num_bytes, "Interrupt Transfer Raw Data");
-        }
-
+        usbHost->logRawBytes("EspUsbHost::_onReceive", transfer->data_buffer, transfer->actual_num_bytes);
         lastLogTime = currentTime;
     }
 
@@ -1042,22 +918,11 @@ void EspUsbHost::_onReceive(usb_transfer_t *transfer)
         flashLED();
     }
 
-    if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-    {
-        usbHost->log(LOG_LEVEL_INFO, "Received HID report: ");
-    }
+    ESP_LOGI("EspUsbHost", "Received HID report: %d bytes", transfer->actual_num_bytes);
 
-    if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-    {
-        std::ostringstream oss;
-        for (int i = 0; i < transfer->actual_num_bytes; i++)
-        {
-            oss << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
-                << static_cast<int>(transfer->data_buffer[i]) << " ";
-        }
-        usbHost->log(LOG_LEVEL_INFO, "%s", oss.str().c_str());
-    }
+     usbHost->logRawBytes("EspUsbHost::_onReceive HID Report", transfer->data_buffer, transfer->actual_num_bytes);
 
+    // Process the HID report if it's a mouse report
     for (int i = 0; i < 16; i++)
     {
         if (usbHost->endpoint_data_list[i].bInterfaceClass == USB_CLASS_HID)
@@ -1065,7 +930,6 @@ void EspUsbHost::_onReceive(usb_transfer_t *transfer)
             if (usbHost->endpoint_data_list[i].bInterfaceSubClass == HID_SUBCLASS_BOOT &&
                 usbHost->endpoint_data_list[i].bInterfaceProtocol == HID_ITF_PROTOCOL_MOUSE)
             {
-
                 static uint8_t last_buttons = 0;
                 hid_mouse_report_t report = {};
                 report.buttons = transfer->data_buffer[usbHost->HIDReportDesc.buttonStartByte];
@@ -1108,184 +972,34 @@ void EspUsbHost::_onReceive(usb_transfer_t *transfer)
         }
     }
 
-    if (transfer->status == USB_TRANSFER_STATUS_COMPLETED)
+    // Handle transfer status
+    switch (transfer->status)
     {
-        if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-        {
-            usbHost->log(LOG_LEVEL_INFO, "Transfer Completed Successfully: Endpoint=%x", transfer->bEndpointAddress);
-        }
-    }
-    else if (transfer->status == USB_TRANSFER_STATUS_STALL)
-    {
-        if (LOG_LEVEL_WARN <= EspUsbHost::current_log_level)
-        {
-            usbHost->log(LOG_LEVEL_WARN, "Transfer STALL Received: Endpoint=%x", transfer->bEndpointAddress);
-        }
-    }
-    else
-    {
-        if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-        {
-            usbHost->log(LOG_LEVEL_ERROR, "Transfer Error or Incomplete: Status=%x, Endpoint=%x", transfer->status, transfer->bEndpointAddress);
-        }
+    case USB_TRANSFER_STATUS_COMPLETED:
+        ESP_LOGI("EspUsbHost", "Transfer completed successfully: Endpoint=0x%x", transfer->bEndpointAddress);
+        break;
+
+    case USB_TRANSFER_STATUS_STALL:
+        ESP_LOGW("EspUsbHost", "Transfer STALL received: Endpoint=0x%x", transfer->bEndpointAddress);
+        break;
+
+    default:
+        ESP_LOGE("EspUsbHost", "Transfer error or incomplete: Status=0x%x, Endpoint=0x%x", transfer->status, transfer->bEndpointAddress);
+        break;
     }
 
+    // Resubmit the transfer if the device is not suspended
     if (!usbHost->deviceSuspended)
     {
         esp_err_t err = usb_host_transfer_submit(transfer);
         if (err != ESP_OK)
         {
-            if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-            {
-                usbHost->log(LOG_LEVEL_ERROR, "Failed to resubmit transfer: err=%x, Endpoint=%x", err, transfer->bEndpointAddress);
-            }
+            ESP_LOGE("EspUsbHost", "Failed to resubmit transfer: err=0x%x, Endpoint=0x%x", err, transfer->bEndpointAddress);
         }
     }
     else
     {
         usb_host_transfer_free(transfer);
-    }
-}
-
-void EspUsbHost::onMouse(hid_mouse_report_t report, uint8_t last_buttons)
-{
-    if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-    {
-        log(LOG_LEVEL_INFO, "Inform: Mouse event detected");
-    }
-
-    if (LOG_LEVEL_DEBUG <= EspUsbHost::current_log_level)
-    {
-        log(LOG_LEVEL_DEBUG, "Debug: last_buttons=0x%02x(%c%c%c%c%c), buttons=0x%02x(%c%c%c%c%c), x=%d, y=%d, wheel=%d",
-            last_buttons,
-            (last_buttons & MOUSE_BUTTON_LEFT) ? 'L' : ' ',
-            (last_buttons & MOUSE_BUTTON_RIGHT) ? 'R' : ' ',
-            (last_buttons & MOUSE_BUTTON_MIDDLE) ? 'M' : ' ',
-            (last_buttons & MOUSE_BUTTON_BACKWARD) ? 'B' : ' ',
-            (last_buttons & MOUSE_BUTTON_FORWARD) ? 'F' : ' ',
-            report.buttons,
-            (report.buttons & MOUSE_BUTTON_LEFT) ? 'L' : ' ',
-            (report.buttons & MOUSE_BUTTON_RIGHT) ? 'R' : ' ',
-            (report.buttons & MOUSE_BUTTON_MIDDLE) ? 'M' : ' ',
-            (report.buttons & MOUSE_BUTTON_BACKWARD) ? 'B' : ' ',
-            (report.buttons & MOUSE_BUTTON_FORWARD) ? 'F' : ' ',
-            report.x,
-            report.y,
-            report.wheel);
-    }
-}
-
-void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
-{
-    if (deviceMouseReady)
-    {
-        if (!(last_buttons & MOUSE_BUTTON_LEFT) && (report.buttons & MOUSE_BUTTON_LEFT))
-        {
-            serial1Send("km.left(1)\n");
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                log(LOG_LEVEL_INFO, "Inform: Left mouse button pressed");
-            }
-        }
-        if ((last_buttons & MOUSE_BUTTON_LEFT) && !(report.buttons & MOUSE_BUTTON_LEFT))
-        {
-            serial1Send("km.left(0)\n");
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                log(LOG_LEVEL_INFO, "Inform: Left mouse button released");
-            }
-        }
-
-        if (!(last_buttons & MOUSE_BUTTON_RIGHT) && (report.buttons & MOUSE_BUTTON_RIGHT))
-        {
-            serial1Send("km.right(1)\n");
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                log(LOG_LEVEL_INFO, "Inform: Right mouse button pressed");
-            }
-        }
-        if ((last_buttons & MOUSE_BUTTON_RIGHT) && !(report.buttons & MOUSE_BUTTON_RIGHT))
-        {
-            serial1Send("km.right(0)\n");
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                log(LOG_LEVEL_INFO, "Inform: Right mouse button released");
-            }
-        }
-
-        if (!(last_buttons & MOUSE_BUTTON_MIDDLE) && (report.buttons & MOUSE_BUTTON_MIDDLE))
-        {
-            serial1Send("km.middle(1)\n");
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                log(LOG_LEVEL_INFO, "Inform: Middle mouse button pressed");
-            }
-        }
-        if ((last_buttons & MOUSE_BUTTON_MIDDLE) && !(report.buttons & MOUSE_BUTTON_MIDDLE))
-        {
-            serial1Send("km.middle(0)\n");
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                log(LOG_LEVEL_INFO, "Inform: Middle mouse button released");
-            }
-        }
-
-        if (!(last_buttons & MOUSE_BUTTON_FORWARD) && (report.buttons & MOUSE_BUTTON_FORWARD))
-        {
-            serial1Send("km.side1(1)\n");
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                log(LOG_LEVEL_INFO, "Inform: Forward mouse button pressed");
-            }
-        }
-        if ((last_buttons & MOUSE_BUTTON_FORWARD) && !(report.buttons & MOUSE_BUTTON_FORWARD))
-        {
-            serial1Send("km.side1(0)\n");
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                log(LOG_LEVEL_INFO, "Inform: Forward mouse button released");
-            }
-        }
-
-        if (!(last_buttons & MOUSE_BUTTON_BACKWARD) && (report.buttons & MOUSE_BUTTON_BACKWARD))
-        {
-            serial1Send("km.side2(1)\n");
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                log(LOG_LEVEL_INFO, "Inform: Backward mouse button pressed");
-            }
-        }
-        if ((last_buttons & MOUSE_BUTTON_BACKWARD) && !(report.buttons & MOUSE_BUTTON_BACKWARD))
-        {
-            serial1Send("km.side2(0)\n");
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                log(LOG_LEVEL_INFO, "Inform: Backward mouse button released");
-            }
-        }
-    }
-}
-
-void EspUsbHost::onMouseMove(hid_mouse_report_t report)
-{
-    if (deviceMouseReady)
-    {
-        if (report.wheel != 0)
-        {
-            serial1Send("km.wheel(%d)\n", report.wheel);
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                log(LOG_LEVEL_INFO, "Inform: Mouse wheel moved, value=%d", report.wheel);
-            }
-        }
-        else
-        {
-            serial1Send("km.move(%d,%d)\n", report.x, report.y);
-            if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-            {
-                log(LOG_LEVEL_INFO, "Inform: Mouse moved, x=%d, y=%d", report.x, report.y);
-            }
-        }
     }
 }
 
@@ -1299,10 +1013,7 @@ esp_err_t EspUsbHost::submitControl(const uint8_t bmRequestType,
     esp_err_t err = usb_host_transfer_alloc(wDescriptorLength + 8 + 1, 0, &transfer);
     if (err != ESP_OK)
     {
-        if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-        {
-            log(LOG_LEVEL_ERROR, "Error: usb_host_transfer_alloc() failed with err=%x", err);
-        }
+        ESP_LOGE("EspUsbHost::submitControl", "usb_host_transfer_alloc() failed with err=0x%x", err);
         return err;
     }
 
@@ -1320,59 +1031,33 @@ esp_err_t EspUsbHost::submitControl(const uint8_t bmRequestType,
     transfer->bEndpointAddress = 0x00;
     transfer->callback = _onReceiveControl;
     transfer->context = this;
-    if (EspUsbHost::current_log_level >= LOG_LEVEL_PARSED)
-    {
-        if (EspUsbHost::current_log_level >= LOG_LEVEL_PARSED)
-        {
-            // logRawBytes(transfer->data_buffer, transfer->num_bytes, "Control Transfer Request Raw Data");
-        }
-    }
 
-    if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-    {
-        log(LOG_LEVEL_INFO, "Submitting control transfer, bmRequestType=0x%02x, bDescriptorIndex=0x%02x, bDescriptorType=0x%02x, wInterfaceNumber=0x%04x, wDescriptorLength=%d",
-            bmRequestType, bDescriptorIndex, bDescriptorType, wInterfaceNumber, wDescriptorLength);
-    }
+    // Log raw bytes using the helper function
+    logRawBytes("EspUsbHost::submitControl", transfer->data_buffer, transfer->num_bytes);
+
+    ESP_LOGI("EspUsbHost", "Submitting control transfer, bmRequestType=0x%02x, bDescriptorIndex=0x%02x, bDescriptorType=0x%02x, wInterfaceNumber=0x%04x, wDescriptorLength=%d",
+             bmRequestType, bDescriptorIndex, bDescriptorType, wInterfaceNumber, wDescriptorLength);
 
     err = usb_host_transfer_submit_control(clientHandle, transfer);
     if (err != ESP_OK)
     {
-        if (LOG_LEVEL_ERROR <= EspUsbHost::current_log_level)
-        {
-            log(LOG_LEVEL_ERROR, "Error: usb_host_transfer_submit_control() failed with err=%x", err);
-        }
+        ESP_LOGE("EspUsbHost", "usb_host_transfer_submit_control() failed with err=%x", err);
         usb_host_transfer_free(transfer);
     }
     else
     {
-        if (LOG_LEVEL_INFO <= EspUsbHost::current_log_level)
-        {
-            log(LOG_LEVEL_INFO, "Control transfer submitted successfully");
-        }
+        ESP_LOGI("EspUsbHost", "Control transfer submitted successfully");
     }
 
     return err;
 }
 
-static uint8_t getItemSize(uint8_t prefix)
-{
-    return (prefix & 0x03) + 1;
-}
-
-static uint8_t getItemType(uint8_t prefix)
-{
-    return prefix & 0xFC;
-}
-
 EspUsbHost::HIDReportDescriptor EspUsbHost::parseHIDReportDescriptor(uint8_t *data, int length)
 {
-    // Ensure //logRawBytes is only called if the log level is LOG_LEVEL_FIXED or higher
-    if (LOG_LEVEL_FIXED >= EspUsbHost::current_log_level)
-    {
-        logRawBytes(data, length, "parsed HID Report Descriptor Raw Data");
-    }
-    int i = 0;
+    // Log the raw bytes using the helper function
+    logRawBytes("EspUsbHost::parseHIDReportDescriptor", data, length);
 
+    int i = 0;
     ParsedValues parsedValues = {0};
 
     auto getValue = [](uint8_t *data, int size, bool isSigned) -> int16_t
@@ -1400,10 +1085,13 @@ EspUsbHost::HIDReportDescriptor EspUsbHost::parseHIDReportDescriptor(uint8_t *da
                 value = (uint16_t)(data[0] | (data[1] << 8));
             }
         }
+        ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "getValue: data[0]=0x%02X, size=%d, isSigned=%d, value=%d", data[0], size, isSigned, value);
         return value;
     };
 
     HIDReportDescriptor localHIDReportDesc = {0};
+
+    ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Starting parsing HID report descriptor of length %d", length);
 
     while (i < length)
     {
@@ -1414,108 +1102,147 @@ EspUsbHost::HIDReportDescriptor EspUsbHost::parseHIDReportDescriptor(uint8_t *da
         bool isSigned = (item == 0x14 || item == 0x24);
         int16_t value = getValue(data + i + 1, parsedValues.size, isSigned);
 
+        ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "At index %d: prefix=0x%02X, size=%d, item=0x%02X, isSigned=%d", i, prefix, parsedValues.size, item, isSigned);
+        ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Value extracted: %d", value);
+
         switch (item)
         {
         case 0x04: // USAGE_PAGE
             parsedValues.usagePage = (uint8_t)value;
+            ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "USAGE_PAGE: %d", parsedValues.usagePage);
             break;
         case 0x08: // USAGE
             parsedValues.usage = (uint8_t)value;
+            ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "USAGE: %d", parsedValues.usage);
             break;
         case 0x84: // REPORT_ID
             parsedValues.reportId = value;
             localHIDReportDesc.reportId = parsedValues.reportId;
             parsedValues.hasReportId = true;
             parsedValues.currentBitOffset += 8;
+            ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "REPORT_ID: %d, currentBitOffset: %d", parsedValues.reportId, parsedValues.currentBitOffset);
             break;
         case 0x74: // REPORT_SIZE
             parsedValues.reportSize = value;
+            ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "REPORT_SIZE: %d", parsedValues.reportSize);
             break;
         case 0x94: // REPORT_COUNT
             parsedValues.reportCount = value;
+            ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "REPORT_COUNT: %d", parsedValues.reportCount);
             break;
         case 0x14: // LOGICAL_MINIMUM
             if (parsedValues.size == 1)
             {
                 parsedValues.logicalMin8 = (int8_t)value;
+                ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "LOGICAL_MINIMUM (8-bit): %d", parsedValues.logicalMin8);
             }
             else
             {
                 parsedValues.logicalMin16 = value;
+                ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "LOGICAL_MINIMUM (16-bit): %d", parsedValues.logicalMin16);
             }
             break;
         case 0x24: // LOGICAL_MAXIMUM
             if (parsedValues.size == 1)
             {
                 parsedValues.logicalMax8 = (int8_t)value;
+                ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "LOGICAL_MAXIMUM (8-bit): %d", parsedValues.logicalMax8);
             }
             else
             {
                 parsedValues.logicalMax = value;
+                ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "LOGICAL_MAXIMUM (16-bit): %d", parsedValues.logicalMax);
             }
             break;
         case 0xA0: // COLLECTION
             parsedValues.level++;
             parsedValues.collection = value;
+            ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "COLLECTION: level=%d, collection=%d", parsedValues.level, parsedValues.collection);
             break;
         case 0xC0: // END_COLLECTION
             parsedValues.level--;
+            ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "END_COLLECTION: level=%d", parsedValues.level);
             break;
         case 0x80: // INPUT
-            // Determine what type of input we are dealing with based on USAGE
+            ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "INPUT detected");
+            ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Current usagePage: %d, usage: %d", parsedValues.usagePage, parsedValues.usage);
+            ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Logical min: %d, Logical max: %d", parsedValues.logicalMin16, parsedValues.logicalMax);
+
+            // Handle X and Y axis (Usage Page 0x01 and Usage 0x30 or 0x31)
             if (parsedValues.usagePage == 0x01 && (parsedValues.usage == 0x30 || parsedValues.usage == 0x31))
-            { // X-axis or Y-axis
+            {
+                ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Processing X/Y axis");
                 if (parsedValues.logicalMax <= 2047)
                 {
-                    // Handle 12-bit range
+                    // Handle 12-bit range for X and Y axis
                     localHIDReportDesc.xAxisSize = 12;
-                    localHIDReportDesc.yAxisSize = 12;
                     localHIDReportDesc.xAxisStartByte = parsedValues.currentBitOffset / 8;
                     parsedValues.currentBitOffset += 12;
+                    localHIDReportDesc.yAxisSize = 12;
                     localHIDReportDesc.yAxisStartByte = parsedValues.currentBitOffset / 8;
                     parsedValues.currentBitOffset += 12;
+                    ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "X and Y axis (12-bit): xAxisSize=%d, yAxisSize=%d, xAxisStartByte=%d, yAxisStartByte=%d", localHIDReportDesc.xAxisSize, localHIDReportDesc.yAxisSize, localHIDReportDesc.xAxisStartByte, localHIDReportDesc.yAxisStartByte);
                 }
                 else
                 {
                     // Handle 8-bit or 16-bit ranges
-                    localHIDReportDesc.xAxisSize = localHIDReportDesc.yAxisSize =
-                        (parsedValues.logicalMax <= 127) ? 8 : 16;
+                    uint8_t axisSize = (parsedValues.logicalMax <= 127) ? 8 : 16;
+                    localHIDReportDesc.xAxisSize = axisSize;
                     localHIDReportDesc.xAxisStartByte = parsedValues.currentBitOffset / 8;
-                    parsedValues.currentBitOffset += localHIDReportDesc.xAxisSize;
+                    parsedValues.currentBitOffset += axisSize;
+                    localHIDReportDesc.yAxisSize = axisSize;
                     localHIDReportDesc.yAxisStartByte = parsedValues.currentBitOffset / 8;
-                    parsedValues.currentBitOffset += localHIDReportDesc.yAxisSize;
+                    parsedValues.currentBitOffset += axisSize;
+                    ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "X and Y axis (%d-bit): xAxisSize=%d, yAxisSize=%d, xAxisStartByte=%d, yAxisStartByte=%d", axisSize, localHIDReportDesc.xAxisSize, localHIDReportDesc.yAxisSize, localHIDReportDesc.xAxisStartByte, localHIDReportDesc.yAxisStartByte);
                 }
             }
+            // Handle wheel movement (Usage Page 0x01 and Usage 0x38)
             else if (parsedValues.usagePage == 0x01 && parsedValues.usage == 0x38)
             {
+                ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Processing wheel movement");
                 localHIDReportDesc.wheelSize = (parsedValues.logicalMax <= 127 && parsedValues.logicalMax >= -128) ? 8 : 16;
                 localHIDReportDesc.wheelStartByte = parsedValues.currentBitOffset / 8;
                 parsedValues.currentBitOffset += localHIDReportDesc.wheelSize;
+                ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Wheel movement: wheelSize=%d, wheelStartByte=%d", localHIDReportDesc.wheelSize, localHIDReportDesc.wheelStartByte);
             }
+            // Handle buttons (Usage Page 0x09, Usage Minimum 0x01, Usage Maximum 0x10)
             else if (parsedValues.usagePage == 0x09 && parsedValues.usage >= 0x01 && parsedValues.usage <= 0x10)
             {
+                ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Processing buttons");
                 localHIDReportDesc.buttonSize = parsedValues.reportCount * parsedValues.reportSize;
                 localHIDReportDesc.buttonStartByte = parsedValues.currentBitOffset / 8;
                 parsedValues.currentBitOffset += localHIDReportDesc.buttonSize;
+                ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Buttons: buttonSize=%d, buttonStartByte=%d, currentBitOffset=%d", localHIDReportDesc.buttonSize, localHIDReportDesc.buttonStartByte, parsedValues.currentBitOffset);
+            }
+            else
+            {
+                ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Unhandled INPUT usage");
+                parsedValues.currentBitOffset += parsedValues.reportSize * parsedValues.reportCount;
+                ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Updated currentBitOffset: %d", parsedValues.currentBitOffset);
             }
             break;
-        case 0x18:
-            parsedValues.usageMinimum = (uint8_t)value;
-            break;
-        case 0x28:
-            parsedValues.usageMaximum = (uint8_t)value;
-            break;
         default:
+            ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Unhandled item: 0x%02X", item);
             break;
         }
 
         i += parsedValues.size + 1;
+        ESP_LOGD("EspUsbHost::parseHIDReportDescriptor", "Moving to next item, index now: %d", i);
     }
 
     HIDReportDesc = localHIDReportDesc;
 
-   // logHIDReportDescriptor(HIDReportDesc);
+    // Log final variable values
+    ESP_LOGI("EspUsbHost::parseHIDReportDescriptor", "Final parsed values:");
+    ESP_LOGI("EspUsbHost::parseHIDReportDescriptor", "reportId: %d", HIDReportDesc.reportId);
+    ESP_LOGI("EspUsbHost::parseHIDReportDescriptor", "buttonSize: %d", HIDReportDesc.buttonSize);
+    ESP_LOGI("EspUsbHost::parseHIDReportDescriptor", "xAxisSize: %d", HIDReportDesc.xAxisSize);
+    ESP_LOGI("EspUsbHost::parseHIDReportDescriptor", "yAxisSize: %d", HIDReportDesc.yAxisSize);
+    ESP_LOGI("EspUsbHost::parseHIDReportDescriptor", "wheelSize: %d", HIDReportDesc.wheelSize);
+    ESP_LOGI("EspUsbHost::parseHIDReportDescriptor", "buttonStartByte: %d", HIDReportDesc.buttonStartByte);
+    ESP_LOGI("EspUsbHost::parseHIDReportDescriptor", "xAxisStartByte: %d", HIDReportDesc.xAxisStartByte);
+    ESP_LOGI("EspUsbHost::parseHIDReportDescriptor", "yAxisStartByte: %d", HIDReportDesc.yAxisStartByte);
+    ESP_LOGI("EspUsbHost::parseHIDReportDescriptor", "wheelStartByte: %d", HIDReportDesc.wheelStartByte);
 
     return HIDReportDesc;
 }
-
