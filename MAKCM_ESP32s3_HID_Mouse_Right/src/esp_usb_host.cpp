@@ -659,15 +659,12 @@ void EspUsbHost::cleanupTask(void *arg)
     EspUsbHost *usbHost = static_cast<EspUsbHost *>(arg);
 
     while (true) {
-        // Wait for notification from the event callback (blocking)
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY); 
 
-        // Cleanup procedure starts after notification
         ESP_LOGI("EspUsbHost", "Starting cleanup...");
 
         esp_err_t err;
 
-        // Clear and free USB transfers
         for (int i = 0; i < usbHost->usbTransferSize; i++) {
             if (usbHost->usbTransfer[i] != NULL) {
                 err = usb_host_transfer_free(usbHost->usbTransfer[i]);
@@ -681,7 +678,6 @@ void EspUsbHost::cleanupTask(void *arg)
         }
         usbHost->usbTransferSize = 0;
 
-        // Release USB interfaces
         for (int i = 0; i < usbHost->usbInterfaceSize; i++) {
             err = usb_host_interface_release(usbHost->clientHandle, usbHost->deviceHandle, usbHost->usbInterface[i]);
             if (err == ESP_OK) {
@@ -693,7 +689,6 @@ void EspUsbHost::cleanupTask(void *arg)
         }
         usbHost->usbInterfaceSize = 0;
 
-        // Close USB device
         err = usb_host_device_close(usbHost->clientHandle, usbHost->deviceHandle);
         if (err == ESP_OK) {
             ESP_LOGI("EspUsbHost", "Device closed successfully");

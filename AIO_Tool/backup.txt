@@ -45,10 +45,7 @@ class MAKCM_GUI:
 
         self.define_theme_colors()
 
-        self.running = True  # Flag to control thread execution
-
-        self.log_thread = threading.Thread(target=self.log_to_file, daemon=True)
-        self.log_thread.start()
+        threading.Thread(target=self.log_to_file, daemon=True).start()
         self.start_com_port_monitoring()
         self.setup_gui()
 
@@ -295,7 +292,7 @@ class MAKCM_GUI:
         """Starts a background thread to continuously scan COM ports."""
         def monitor_ports():
             previous_ports = set(self.available_ports)
-            while self.running:
+            while True:
                 current_ports = set(f"{port.description}" for port in serial.tools.list_ports.comports())
 
                 if current_ports != previous_ports:
@@ -324,8 +321,8 @@ class MAKCM_GUI:
 
                 time.sleep(1)
 
-        self.monitoring_thread = threading.Thread(target=monitor_ports, daemon=True)
-        self.monitoring_thread.start()
+        monitoring_thread = threading.Thread(target=monitor_ports, daemon=True)
+        monitoring_thread.start()
 
     def update_com_port_combo(self):
         """Updates the COM port combo box with the latest available ports."""
@@ -490,10 +487,8 @@ class MAKCM_GUI:
                     self.com_port_combo.configure(state="disabled")
                     self.serial_connection.write("DEBUG_ON\n".encode())
 
-                    self.serial_thread = threading.Thread(target=self.serial_communication_thread, daemon=True)
-                    self.serial_thread.start()
-                    self.monitor_thread = threading.Thread(target=self.monitor_com_port, daemon=True)
-                    self.monitor_thread.start()
+                    threading.Thread(target=self.serial_communication_thread, daemon=True).start()
+                    threading.Thread(target=self.monitor_com_port, daemon=True).start()
                     self.update_mcu_status()
                     self.history_button.configure(state="normal") 
                 except Exception as e:
@@ -502,22 +497,17 @@ class MAKCM_GUI:
                 self.terminal_print("Please select a new COM port.")
 
     def open_log(self):
-        # Adjusted path to user's home directory
-        log_file_path = os.path.join(os.path.expanduser("~"), 'MAKCM', 'log.txt')
+        log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log.txt')
         self.open_file_explorer(log_file_path)
 
     def log_to_file(self):
-        # Create a directory in the user's home directory
-        log_dir = os.path.join(os.path.expanduser("~"), 'MAKCM')
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-        log_file_path = os.path.join(log_dir, 'log.txt')
+        log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log.txt')
 
         if not os.path.exists(log_file_path):
             with open(log_file_path, "w") as f:
                 f.write("Log File Created\n")
 
-        while self.running:
+        while True:
             if not self.log_queue.empty():
                 log_message = self.log_queue.get()
                 with open(log_file_path, "a") as f:
@@ -661,8 +651,6 @@ class MAKCM_GUI:
         self.root.after(0, lambda: self.browse_button.configure(text="Flash", command=self.browse_file, state="normal"))
 
     def quit_application(self):
-        self.running = False  # Signal threads to stop
-
         if self.serial_open and self.serial_connection.is_open:
             try:
                 self.serial_connection.write("DEBUG_OFF\n".encode())
@@ -670,18 +658,7 @@ class MAKCM_GUI:
                 self.terminal_print("Serial connection closed before quitting.")
             except Exception as e:
                 self.terminal_print(f"Error while closing serial connection: {e}")
-        self.hide_history_dropdown()
-
-        # Join threads
-        if self.log_thread.is_alive():
-            self.log_thread.join(timeout=1)
-        if hasattr(self, 'monitoring_thread') and self.monitoring_thread.is_alive():
-            self.monitoring_thread.join(timeout=1)
-        if hasattr(self, 'serial_thread') and self.serial_thread.is_alive():
-            self.serial_thread.join(timeout=1)
-        if hasattr(self, 'monitor_thread') and self.monitor_thread.is_alive():
-            self.monitor_thread.join(timeout=1)
-
+        self.hide_history_dropdown() 
         self.root.quit()
         self.root.destroy()
 
@@ -709,7 +686,7 @@ class MAKCM_GUI:
         self.output_text.configure(state="disabled")
 
     def serial_communication_thread(self):
-        while self.running and self.is_connected and self.serial_open:
+        while self.is_connected and self.serial_open:
             try:
                 if self.serial_connection and self.serial_connection.is_open:
                     bytes_to_read = self.serial_connection.in_waiting
@@ -727,7 +704,7 @@ class MAKCM_GUI:
                 break
 
     def monitor_com_port(self):
-        while self.running and self.serial_open:
+        while self.serial_open:
             if not self.monitoring_active:
                 return
 

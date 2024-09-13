@@ -8,7 +8,6 @@
     #warning "DEBUG MODE ENABLED: USB host will not work! For logging purposes only."
 #endif
 
-// Ensure the FIRMWARE_VERSION is defined
 #ifndef FIRMWARE_VERSION
     #error "FIRMWARE_VERSION is not defined! Please set FIRMWARE_VERSION in the build flags."
 #endif
