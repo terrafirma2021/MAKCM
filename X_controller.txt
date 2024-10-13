@@ -1,0 +1,239 @@
+### Raw Bytes
+
+Device Descriptor
+12 01 00 02 FF 47 D0 40 5E 04 12 0B 0F 05 01 02 03 01
+
+Configuration Descriptor Set
+09 02 77 00 03 01 00 A0 FA 09 04 00 00 02 FF 47 D0 00 07 05 02 03 40 00 04 07 05 82 03 40 00 04 09 04 00 01 02 FF 47 D0 00 07 05 02 03 40 00 04 07 05 82 03 40 00 02 09 04 01 00 00 FF 47 D0 00 09 04 01 01 02 FF 47 D0 00 07 05 03 01 E4 00 01 07 05 83 01 40 00 01 09 04 02 00 00 FF 47 D0 00 09 04 02 01 02 FF 47 D0 00 07 05 04 02 40 00 00 07 05 84 02 40 00 00
+
+
+### Device Descriptor
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x12 (18 bytes)       | Length of this descriptor
+bDescriptorType              | 0x01                   | Device Descriptor
+bcdUSB                       | 0x200                  | USB 2.0
+bDeviceClass                 | 0xFF                   | Vendor Specific
+bDeviceSubClass              | 0x47                   | 
+bDeviceProtocol              | 0xD0                   | 
+bMaxPacketSize0              | 0x40 (64 bytes)       | Max packet size for endpoint 0
+idVendor                     | 0x045E                 | Microsoft Corporation
+idProduct                    | 0x0B12                 | Xbox Controller
+bcdDevice                    | 0x050F                 | 
+iManufacturer                | 0x01                   | String Descriptor 1
+iProduct                     | 0x02                   | String Descriptor 2
+iSerialNumber                | 0x03                   | String Descriptor 3
+bNumConfigurations           | 0x01                   | 
+
+
+  
+### Configuration Descriptor Set
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x09                   | Length of this descriptor
+bDescriptorType              | 0x02                   | Configuration Descriptor
+wTotalLength                 | 0x0077                 | Total length of data for this configuration
+bNumInterfaces               | 0x03                   | Number of interfaces supported by this configuration
+bConfigurationValue          | 0x01                   | Value to use as an argument to select this configuration
+iConfiguration               | 0x00                   | No String Descriptor
+bmAttributes                 | 0xA0                   | Self Powered, Remote Wakeup
+MaxPower                     | 0xFA                   | 500 mA
+
+
+
+### Interface Descriptor (Interface 0)
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x09                   | Length of this descriptor
+bDescriptorType              | 0x04                   | Interface Descriptor
+bInterfaceNumber             | 0x00                   | Interface 0
+bAlternateSetting            | 0x00                   | Alternate setting for this interface
+bNumEndpoints                | 0x02                   | 2 Endpoints for this interface
+bInterfaceClass              | 0xFF                   | Vendor Specific
+bInterfaceSubClass           | 0x47                   | 
+bInterfaceProtocol           | 0xD0                   | 
+iInterface                   | 0x00                   | No String Descriptor
+
+
+
+#### OUT Endpoint
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x07                   | Length of this descriptor
+bDescriptorType              | 0x05                   | Endpoint Descriptor
+bEndpointAddress             | 0x02                   | OUT, Endpoint 2
+bmAttributes                 | 0x03                   | Interrupt Transfer Type
+wMaxPacketSize               | 0x0040                 | 64 bytes
+bInterval                    | 0x04                   | 4 ms interval
+
+
+
+#### IN Endpoint
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x07                   | Length of this descriptor
+bDescriptorType              | 0x05                   | Endpoint Descriptor
+bEndpointAddress             | 0x82                   | IN, Endpoint 2
+bmAttributes                 | 0x03                   | Interrupt Transfer Type
+wMaxPacketSize               | 0x0040                 | 64 bytes
+bInterval                    | 0x04                   | 4 ms interval
+
+
+
+### Interface Descriptor (Interface 1, Alternate Setting 0)
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x09                   | Length of this descriptor
+bDescriptorType              | 0x04                   | Interface Descriptor
+bInterfaceNumber             | 0x01                   | Interface 1
+bAlternateSetting            | 0x00                   | 
+bNumEndpoints                | 0x00                   | Default Control Pipe only
+bInterfaceClass              | 0xFF                   | Vendor Specific
+bInterfaceSubClass           | 0x47                   | 
+bInterfaceProtocol           | 0xD0                   | 
+iInterface                   | 0x00                   | No String Descriptor
+
+
+
+### Interface Descriptor (Interface 1, Alternate Setting 1)
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x09                   | Length of this descriptor
+bDescriptorType              | 0x04                   | Interface Descriptor
+bInterfaceNumber             | 0x01                   | Interface 1
+bAlternateSetting            | 0x01                   | 
+bNumEndpoints                | 0x02                   | 2 Endpoints
+bInterfaceClass              | 0xFF                   | Vendor Specific
+bInterfaceSubClass           | 0x47                   | 
+bInterfaceProtocol           | 0xD0                   | 
+iInterface                   | 0x00                   | No String Descriptor
+
+
+
+#### OUT Endpoint
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x07                   | Length of this descriptor
+bDescriptorType              | 0x05                   | Endpoint Descriptor
+bEndpointAddress             | 0x03                   | OUT, Endpoint 3
+bmAttributes                 | 0x01                   | Isochronous Transfer Type
+wMaxPacketSize               | 0x00E4                 | 228 bytes
+bInterval                    | 0x01                   | 1 ms interval
+
+
+
+#### IN Endpoint
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x07                   | Length of this descriptor
+bDescriptorType              | 0x05                   | Endpoint Descriptor
+bEndpointAddress             | 0x83                   | IN, Endpoint 3
+bmAttributes                 | 0x01                   | Isochronous Transfer Type
+wMaxPacketSize               | 0x0040                 | 64 bytes
+bInterval                    | 0x01                   | 1 ms interval
+
+
+
+### Interface Descriptor (Interface 2, Alternate Setting 0)
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x09                   | Length of this descriptor
+bDescriptorType              | 0x04                   | Interface Descriptor
+bInterfaceNumber             | 0x02                   | Interface 2
+bAlternateSetting            | 0x00                   | 
+bNumEndpoints                | 0x00                   | Default Control Pipe only
+bInterfaceClass              | 0xFF                   | Vendor Specific
+bInterfaceSubClass           | 0x47                   | 
+bInterfaceProtocol           | 0xD0                   | 
+iInterface                   | 0x00                   | No String Descriptor
+
+
+
+### Interface Descriptor (Interface 2, Alternate Setting 1)
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x09                   | Length of this descriptor
+bDescriptorType              | 0x04                   | Interface Descriptor
+bInterfaceNumber             | 0x02                   | Interface 2
+bAlternateSetting            | 0x01                   | 
+bNumEndpoints                | 0x02                   | 2 Endpoints
+bInterfaceClass              | 0xFF                   | Vendor Specific
+bInterfaceSubClass           | 0x47                   | 
+bInterfaceProtocol           | 0xD0                   | 
+iInterface                   | 0x00                   | No String Descriptor
+
+
+
+#### OUT Endpoint
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x07                   | Length of this descriptor
+bDescriptorType              | 0x05                   | Endpoint Descriptor
+bEndpointAddress             | 0x04                   | OUT, Endpoint 4
+bmAttributes                 | 0x02                   | Bulk Transfer Type
+wMaxPacketSize               | 0x0040                 | 64 bytes
+
+
+  
+#### IN Endpoint
+  
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x07                   | Length of this descriptor
+bDescriptorType              | 0x05                   | Endpoint Descriptor
+bEndpointAddress             | 0x84                   | IN, Endpoint 4
+bmAttributes                 | 0x02                   | Bulk Transfer Type
+wMaxPacketSize               | 0x0040                 | 64 bytes
+
+
+
+### String Descriptors
+
+#### String Descriptor 0 (Language ID)
+  
+Raw Bytes: 
+04 03 09 04
+  
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x04                   | Length of this descriptor
+bDescriptorType              | 0x03                   | String Descriptor
+Language ID[0]               | 0x0409                 | English - United States
+
+
+
+#### String Descriptor 1 (Manufacturer)
+
+Raw Bytes: 
+14 03 4D 00 69 00 63 00 72 00 6F 00 73 00 6F 00 66 00 74 00
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x14                   | Length of this descriptor
+bDescriptorType              | 0x03                   | String Descriptor
+Language 0x0409              | "Microsoft"            |
+
+
+  
+#### String Descriptor 2 (Product)
+  
+Raw Bytes: 
+16 03 43 00 6F 00 6E 00 74 00 72 00 6F 00 6C 00 6C 00 65 00 72 00
+  
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x16                   | Length of this descriptor
+bDescriptorType              | 0x03                   | String Descriptor
+Language 0x0409              | "Controller"           |
