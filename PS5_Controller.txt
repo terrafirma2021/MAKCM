@@ -1,0 +1,197 @@
+### Raw Bytes
+
+#### Device Descriptor
+12 01 00 02 00 00 00 40 4C 05 E6 0C 00 01 01 02 00 01
+
+#### Configuration Descriptor Set
+09 02 E3 00 04 01 00 C0 FA 09 04 00 00 00 01 01 00 00 
+0A 24 01 00 01 49 00 02 01 02 0C 24 02 01 01 01 06 04 
+33 00 00 00 0C 24 06 02 01 01 03 00 00 00 00 00 09 24 
+03 03 01 03 04 02 00 0C 24 02 04 02 04 03 02 03 00 00 
+00 09 24 06 05 04 01 03 00 00 09 24 03 06 01 01 01 05 
+00 09 04 01 00 00 01 02 00 00 09 04 01 01 01 01 02 00 
+00 07 24 01 01 01 01 00 0B 24 02 01 04 02 10 01 80 BB 
+00 09 05 01 09 88 01 04 00 00 07 25 01 00 00 00 00 09 
+04 02 00 00 01 02 00 00 09 04 02 01 01 01 02 00 00 07 
+24 01 06 01 01 00 0B 24 02 01 02 02 10 01 80 BB 00 09 
+05 82 05 C4 00 04 00 00 07 25 01 00 00 00 00
+
+---
+
+### Device Descriptor
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x12 (18 bytes)        | Length of this descriptor
+bDescriptorType              | 0x01                   | Device Descriptor
+bcdUSB                       | 0x200                  | USB 2.0
+bDeviceClass                 | 0x00                   | Defined by interface descriptors
+bDeviceSubClass              | 0x00                   | 
+bDeviceProtocol              | 0x00                   | 
+bMaxPacketSize0              | 0x40 (64 bytes)        | Max packet size for endpoint 0
+idVendor                     | 0x054C                 | Sony Corporation
+idProduct                    | 0x0CE6                 | DualSense Controller
+bcdDevice                    | 0x0100                 | Device version
+iManufacturer                | 0x01                   | String Descriptor 1
+iProduct                     | 0x02                   | String Descriptor 2
+iSerialNumber                | 0x00                   | No String Descriptor
+bNumConfigurations           | 0x01                   | Number of configurations
+
+---
+
+### Configuration Descriptor Set
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x09                   | Length of this descriptor
+bDescriptorType              | 0x02                   | Configuration Descriptor
+wTotalLength                 | 0x00E3                 | Total length of data for this configuration
+bNumInterfaces               | 0x04                   | Number of interfaces supported by this configuration
+bConfigurationValue          | 0x01                   | Value to use to select this configuration
+iConfiguration               | 0x00                   | No String Descriptor
+bmAttributes                 | 0xC0                   | Self Powered
+MaxPower                     | 0xFA                   | 500 mA
+
+---
+
+### Interface Descriptor (Interface 0)
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x09                   | Length of this descriptor
+bDescriptorType              | 0x04                   | Interface Descriptor
+bInterfaceNumber             | 0x00                   | Interface 0
+bAlternateSetting            | 0x00                   | Alternate setting for this interface
+bNumEndpoints                | 0x00                   | Default Control Pipe only
+bInterfaceClass              | 0x01                   | Audio
+bInterfaceSubClass           | 0x01                   | Audio Control
+bInterfaceProtocol           | 0x00                   | 
+iInterface                   | 0x00                   | No String Descriptor
+
+---
+
+#### Audio Control Interface Header Descriptor
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x0A                   | Length of this descriptor
+bDescriptorType              | 0x24                   | Audio Interface Descriptor
+bDescriptorSubtype           | 0x01                   | Header
+bcdADC                       | 0x0100                 | Version of Audio Device Class
+wTotalLength                 | 0x0049                 | Total length of this interface descriptor
+bInCollection                | 0x02                   | Number of interfaces in this collection
+baInterfaceNr[1]             | 0x01                   | Interface 1
+baInterfaceNr[2]             | 0x02                   | Interface 2
+
+---
+
+#### Audio Control Input Terminal Descriptor
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x0C                   | Length of this descriptor
+bDescriptorType              | 0x24                   | Audio Interface Descriptor
+bDescriptorSubtype           | 0x02                   | Input Terminal
+bTerminalID                  | 0x01                   | 
+wTerminalType                | 0x0101                 | USB Streaming
+bAssocTerminal               | 0x06                   | 
+bNrChannels                  | 0x04                   | 4 channels
+wChannelConfig               | 0x0033                 | L, R, LS, RS
+iChannelNames                | 0x00                   | No String Descriptor
+iTerminal                    | 0x00                   | No String Descriptor
+
+---
+
+#### Audio Control Feature Unit Descriptor
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x0C                   | Length of this descriptor
+bDescriptorType              | 0x24                   | Audio Interface Descriptor
+bDescriptorSubtype           | 0x06                   | Feature Unit
+bUnitID                      | 0x02                   | 
+bSourceID                    | 0x01                   | 
+bControlSize                 | 0x01                   | 1 byte per control
+bmaControls[0]               | 0x03                   | Mute, Volume
+bmaControls[1]               | 0x00                   | 
+bmaControls[2]               | 0x00                   | 
+bmaControls[3]               | 0x00                   | 
+bmaControls[4]               | 0x00                   | 
+iFeature                     | 0x00                   | No String Descriptor
+
+---
+
+#### Audio Control Output Terminal Descriptor
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x09                   | Length of this descriptor
+bDescriptorType              | 0x24                   | Audio Interface Descriptor
+bDescriptorSubtype           | 0x03                   | Output Terminal
+bTerminalID                  | 0x03                   | 
+wTerminalType                | 0x0301                 | Speaker
+bAssocTerminal               | 0x04                   | 
+bSourceID                    | 0x02                   | 
+iTerminal                    | 0x00                   | No String Descriptor
+
+---
+
+### Interface Descriptor (Interface 1, Alternate Setting 0)
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x09                   | Length of this descriptor
+bDescriptorType              | 0x04                   | Interface Descriptor
+bInterfaceNumber             | 0x01                   | Interface 1
+bAlternateSetting            | 0x00                   | 
+bNumEndpoints                | 0x00                   | Default Control Pipe only
+bInterfaceClass              | 0x01                   | Audio
+bInterfaceSubClass           | 0x02                   | Audio Streaming
+bInterfaceProtocol           | 0x00                   | 
+iInterface                   | 0x00                   | No String Descriptor
+
+---
+
+### String Descriptors
+
+#### String Descriptor 0 (Language ID)
+
+Raw Bytes: 
+04 03 09 04
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x04                   | Length of this descriptor
+bDescriptorType              | 0x03                   | String Descriptor
+Language ID[0]               | 0x0409                 | English - United States
+
+---
+
+#### String Descriptor 1 (Manufacturer)
+
+Raw Bytes: 
+3E 03 53 00 6F 00 6E 00 79 00 20 00 49 00 6E 00 74 00 
+65 00 72 00 61 00 63 00 74 00 69 00 76 00 65 00 20 00 
+45 00 6E 00 74 00 65 00 72 00 74 00 61 00 69 00 6E 00 
+6D 00 65 00 6E 00 74 00 73 00 
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x3E                   | Length of this descriptor
+bDescriptorType              | 0x03                   | String Descriptor
+Language 0x0409              | "Sony Interactive Entertainment" | 
+
+---
+
+#### String Descriptor 2 (Product)
+
+Raw Bytes: 
+32 03 44 00 75 00 61 00 6C 00 53 00 65 00 6E 00 73 00 
+65 00 20 00 57 00 69 00 72 00 65 00 6C 00 65 00 73 00 
+73 00 20 00 43 00 6F 00 6E 00 74 00 72 00 6F 00 6C 00 6C 00 65 00 72 00
+
+Field                        | Value                  | Description
+-----------------------------|------------------------|---------------------------------------
+bLength                      | 0x32                   | Length of this descriptor
+bDescriptorType              | 0x03                   | String Descriptor
+Language 0x0409              | "DualSense Wireless Controller" |
