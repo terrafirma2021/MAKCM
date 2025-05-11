@@ -1,9 +1,9 @@
 # MAKCM 2024
-**Open Source ESP32-S3 MAKCM (Kmbox Alternative)**
+**Open Source ESP32-S3 MAKCU (Kmbox Alternative)**
 
 ![MAKCM 2024 Image](https://github.com/user-attachments/assets/02ddc456-4abc-4676-8121-7f3084370923)
 
-Welcome to the MAKCM 2024 project! This is a new open-source implementation for remote injection of mouse control with passthrough, featuring dual ESP32-S3 microcontrollers based on RTOS and advanced task management over the traditional loop.
+Welcome to the MAKCU 2024 project! This is a new open-source implementation for remote injection of mouse control with passthrough, featuring dual ESP32-S3 microcontrollers based on RTOS and advanced task management over the traditional loop.
 
 ~~- To switch internal Phy to OTG disabling cdc/jtag on boot, please run the OTG bat file on both the left, then the right mcu port!~~  
 ~~- To flash hold down boot button, then insert USB Cable~~  
