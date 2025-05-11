@@ -1,7 +1,7 @@
-# MAKCM 2024
+# MAKCU 2024
 **Open Source ESP32-S3 MAKCU (Kmbox Alternative)**
 
-![MAKCM 2024 Image](https://github.com/user-attachments/assets/02ddc456-4abc-4676-8121-7f3084370923)
+![MAKCU 2024 Image](https://github.com/user-attachments/assets/02ddc456-4abc-4676-8121-7f3084370923)
 
 Welcome to the MAKCU 2024 project! This is a new open-source implementation for remote injection of mouse control with passthrough, featuring dual ESP32-S3 microcontrollers based on RTOS and advanced task management over the traditional loop.
 
@@ -85,7 +85,7 @@ We are excited to have you on board and look forward to your contributions!
 
 ---
 
-Feel free to contribute, raise issues, or suggest enhancements. Together, we can make MAKCM 2024 a robust and versatile tool for everyone.
+Feel free to contribute, raise issues, or suggest enhancements. Together, we can make MAKCU 2024 a robust and versatile tool for everyone.
 
 ## Contributing
 
