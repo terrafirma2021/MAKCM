@@ -3,8 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define MAKCM_OTA_PAIR_GENERATION 18
-#define MAKCM_OTA_PAIR_GENERATION_TEXT "18"
+#define MAKCM_OTA_PAIR_GENERATION 19
+#define MAKCM_OTA_PAIR_GENERATION_TEXT "19"
 // The signed manifest and the embedded image identity must both carry the
 // exact `makcm-g<generation>` app version.  Derive it from the same macro so
 // a release bump cannot leave a stale literal behind in either board.
