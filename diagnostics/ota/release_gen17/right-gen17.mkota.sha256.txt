@@ -1,0 +1,2 @@
+6281fcae00b09ec3e1129b1b8b29d0ca33110509fbfb6805cb3b1ac9c815fa8f  right-gen17.mkota
+7770645ec6af164c0e06b1666574d479c9cf3f0ac9d91deaaafb850c01e41e43  right_app_g17.bin

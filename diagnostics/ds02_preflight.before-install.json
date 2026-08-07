@@ -1,0 +1,72 @@
+{
+  "exit_code": 5,
+  "policy": {
+    "auto_install_performed": false,
+    "device_selected": null,
+    "endpoint_selected": null,
+    "next_step_automatic": false,
+    "read_only": true
+  },
+  "required_for_capture": {
+    "checks": [
+      {
+        "error": "dumpcap was not found; install Wireshark with USBPcap externally or pass --dumpcap",
+        "id": "dumpcap",
+        "path": null,
+        "required": true,
+        "status": "FAIL",
+        "version": null
+      },
+      {
+        "error": "tshark was not found; install Wireshark with USBPcap externally or pass --tshark",
+        "id": "tshark",
+        "path": null,
+        "required": true,
+        "status": "FAIL",
+        "version": null
+      },
+      {
+        "error": "dumpcap is unavailable, so USBPcap interfaces cannot be listed",
+        "id": "usbpcap_interface",
+        "interfaces": [],
+        "required": true,
+        "status": "FAIL"
+      }
+    ],
+    "status": "FAIL"
+  },
+  "required_for_descriptor": {
+    "checks": [
+      {
+        "error": null,
+        "id": "descriptor_snapshot_script",
+        "path": "C:\\Users\\li\\Documents\\MAKCM\\tests\\usb_descriptor_snapshot.py",
+        "required": true,
+        "status": "PASS"
+      },
+      {
+        "error": "No module named 'usb'",
+        "id": "pyusb",
+        "module": "usb.core",
+        "required": true,
+        "status": "FAIL"
+      },
+      {
+        "error": "No module named 'libusb_package'",
+        "id": "libusb_package",
+        "module": "libusb_package",
+        "required": true,
+        "status": "FAIL"
+      },
+      {
+        "error": "libusb_package is unavailable",
+        "id": "libusb_backend",
+        "required": true,
+        "status": "FAIL"
+      }
+    ],
+    "status": "FAIL"
+  },
+  "schema": "makcm.windows-usb-capture-preflight.v1",
+  "status": "CAPTURE_AND_DESCRIPTOR_REQUIREMENTS_MISSING"
+}

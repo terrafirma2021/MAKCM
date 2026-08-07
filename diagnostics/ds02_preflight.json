@@ -1,0 +1,75 @@
+{
+  "exit_code": 0,
+  "policy": {
+    "auto_install_performed": false,
+    "device_selected": null,
+    "endpoint_selected": null,
+    "next_step_automatic": false,
+    "read_only": true
+  },
+  "required_for_capture": {
+    "checks": [
+      {
+        "error": null,
+        "id": "usbpcapcmd",
+        "path": "C:\\Program Files\\USBPcap\\USBPcapCMD.exe",
+        "required": true,
+        "status": "PASS",
+        "version": "extcap {version=1.5.4.0}{help=http://desowin.org/usbpcap/}"
+      },
+      {
+        "error": null,
+        "id": "tshark",
+        "path": "C:\\Program Files\\Wireshark\\tshark.exe",
+        "required": true,
+        "status": "PASS",
+        "version": "TShark (Wireshark) 4.6.7 (v4.6.7-0-gb439fb7b47a9)."
+      },
+      {
+        "error": null,
+        "id": "usbpcap_interface",
+        "interfaces": [
+          "\\\\.\\USBPcap1",
+          "\\\\.\\USBPcap2"
+        ],
+        "required": true,
+        "status": "PASS"
+      }
+    ],
+    "status": "PASS"
+  },
+  "required_for_descriptor": {
+    "checks": [
+      {
+        "error": null,
+        "id": "descriptor_snapshot_script",
+        "path": "C:\\Users\\li\\Documents\\MAKCM\\tests\\usb_descriptor_snapshot.py",
+        "required": true,
+        "status": "PASS"
+      },
+      {
+        "error": null,
+        "id": "pyusb",
+        "module": "usb.core",
+        "required": true,
+        "status": "PASS"
+      },
+      {
+        "error": null,
+        "id": "libusb_package",
+        "module": "libusb_package",
+        "required": true,
+        "status": "PASS"
+      },
+      {
+        "error": null,
+        "id": "libusb_backend",
+        "required": true,
+        "status": "PASS"
+      }
+    ],
+    "status": "PASS"
+  },
+  "schema": "makcm.windows-usb-capture-preflight.v1",
+  "status": "READY"
+}

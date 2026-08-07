@@ -1,0 +1,108 @@
+{
+  "boards": {
+    "left": {
+      "pending_action": {
+        "command": "prepare",
+        "created_at": "2026-08-06T19:34:45.937+00:00",
+        "generation": 17,
+        "image_sha256": "d87f3711cbb90bac1fbabc1bae72517313ae2b519b227b067c0f9a41c31646c3",
+        "manifest_sha256": "f4aa307fe5c63703d605733755fb6e4990a7183690017a9adecc2281c128e5cb",
+        "payload_hash": "d87f3711cbb90bac1fbabc1bae72517313ae2b519b227b067c0f9a41c31646c3",
+        "request_digest": "c423bff9a9670c0f7fb361168b6f4c2bb0c410e8053bc2a9e682c9c9bd5d59bf",
+        "sequence": 122,
+        "transaction_id": 2312057653
+      }
+    },
+    "right": {
+      "pending_action": {
+        "command": "prepare",
+        "created_at": "2026-08-06T19:34:45.937+00:00",
+        "generation": 17,
+        "image_sha256": "7770645ec6af164c0e06b1666574d479c9cf3f0ac9d91deaaafb850c01e41e43",
+        "manifest_sha256": "0892089cda3b9d56107cf01ca9fe8f5e4d2afc18f6a87b855990a506aa7ffbf1",
+        "payload_hash": "7770645ec6af164c0e06b1666574d479c9cf3f0ac9d91deaaafb850c01e41e43",
+        "request_digest": "c423bff9a9670c0f7fb361168b6f4c2bb0c410e8053bc2a9e682c9c9bd5d59bf",
+        "sequence": 121,
+        "transaction_id": 2312057653
+      }
+    }
+  },
+  "created_at": "2026-08-06T19:34:45.000+00:00",
+  "events": [
+    {
+      "at": "2026-08-06T19:34:45.000+00:00",
+      "event": "journal_created"
+    },
+    {
+      "active_generation": 16,
+      "at": "2026-08-06T19:34:45.897+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "active_generation": 16,
+      "at": "2026-08-06T19:34:45.897+00:00",
+      "event": "right_preflight",
+      "state": 0,
+      "target_generation": 17
+    },
+    {
+      "at": "2026-08-06T19:34:45.937+00:00",
+      "event": "right_prepare_intent",
+      "request_digest": "c423bff9a9670c0f7fb361168b6f4c2bb0c410e8053bc2a9e682c9c9bd5d59bf",
+      "sequence": 121
+    },
+    {
+      "at": "2026-08-06T19:34:45.937+00:00",
+      "event": "left_prepare_intent",
+      "request_digest": "c423bff9a9670c0f7fb361168b6f4c2bb0c410e8053bc2a9e682c9c9bd5d59bf",
+      "sequence": 122
+    }
+  ],
+  "left": {
+    "chunk_size": 4096,
+    "generation": 17,
+    "image_sha256": "d87f3711cbb90bac1fbabc1bae72517313ae2b519b227b067c0f9a41c31646c3",
+    "image_size": 483072,
+    "manifest_sha256": "f4aa307fe5c63703d605733755fb6e4990a7183690017a9adecc2281c128e5cb",
+    "max_peer_generation": 17,
+    "min_peer_generation": 16,
+    "package_sha256": "6e536523fa2dc477f2c018426966de2fd0ee857bdb812904425d7f93da3200dd",
+    "path": "/home/li/.local/share/makcm-ota/gen17-release/gen17j_journal.tx2312057653.packages/left-6e536523fa2dc477f2c018426966de2fd0ee857bdb812904425d7f93da3200dd.mkota",
+    "role": "left",
+    "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd"
+  },
+  "phase": "new",
+  "port": "/dev/ttyACM0",
+  "record_crc32": "549223c5",
+  "record_seq": 4,
+  "right": {
+    "chunk_size": 4096,
+    "generation": 17,
+    "image_sha256": "7770645ec6af164c0e06b1666574d479c9cf3f0ac9d91deaaafb850c01e41e43",
+    "image_size": 482544,
+    "manifest_sha256": "0892089cda3b9d56107cf01ca9fe8f5e4d2afc18f6a87b855990a506aa7ffbf1",
+    "max_peer_generation": 17,
+    "min_peer_generation": 16,
+    "package_sha256": "6281fcae00b09ec3e1129b1b8b29d0ca33110509fbfb6805cb3b1ac9c815fa8f",
+    "path": "/home/li/.local/share/makcm-ota/gen17-release/gen17j_journal.tx2312057653.packages/right-6281fcae00b09ec3e1129b1b8b29d0ca33110509fbfb6805cb3b1ac9c815fa8f.mkota",
+    "role": "right",
+    "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd"
+  },
+  "runtime_scope": "system",
+  "runtime_unit": null,
+  "runtime_was_active": false,
+  "schema": "makcm.pair-auto-update.v2",
+  "target_generation": 17,
+  "transaction_id": 2312057653,
+  "updated_at": "2026-08-06T19:34:45.937+00:00",
+  "usb_identity": {
+    "bus_path": "1-7",
+    "pid": "55d3",
+    "port": "/dev/ttyACM0",
+    "serial": "5ACC041332",
+    "tty": "ttyACM0",
+    "vid": "1a86"
+  }
+}

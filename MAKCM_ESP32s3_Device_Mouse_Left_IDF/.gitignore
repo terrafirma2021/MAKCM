@@ -1,0 +1,7 @@
+.pio/
+build/
+managed_components/
+sdkconfig
+sdkconfig.old
+dependencies.lock.tmp
+components/makcm_core/include/controller_profiles.local.inc

@@ -4,14 +4,13 @@
 #include <Arduino.h>
 #include <USB.h>
 #include <USBHIDMouse.h>
+#include "PassthroughDevice.h"
 #include "USBSetup.h"
 #include <esp_intr_alloc.h>
 #include <cstring>
 #include <atomic>
 
 // Extern variables
-extern USBHIDMouse Mouse;
-extern TaskHandle_t mouseMoveTaskHandle;
 extern TaskHandle_t ledFlashTaskHandle;
 extern const char *commandQueue[];
 extern int currentCommandIndex;
@@ -19,8 +18,8 @@ extern bool usbReady;
 
 
 // Mouse position tracking
-extern int16_t mouseX;
-extern int16_t mouseY;
+extern int64_t mouseX;
+extern int64_t mouseY;
 
 // Buffer lengths
 #define MAX_KM_MOVE_COMMAND_LENGTH 20
@@ -31,16 +30,11 @@ extern int16_t mouseY;
 extern char serial0Buffer[MAX_SERIAL0_COMMAND_LENGTH];
 extern char serial1Buffer[MAX_SERIAL1_COMMAND_LENGTH];
 
-// Atomic flags for button states
-extern std::atomic<bool> isLeftButtonPressed;
-extern std::atomic<bool> isRightButtonPressed;
-extern std::atomic<bool> isMiddleButtonPressed;
-extern std::atomic<bool> isForwardButtonPressed;
-extern std::atomic<bool> isBackwardButtonPressed;
 extern std::atomic<bool> serial0Locked;
 
 // Function declarations
 void handleKmMoveCommand(const char *command);
+void initializeCommandState();
 void handleDebugcommand(const char *command);
 void handleMove(int x, int y);
 void handleMoveto(int x, int y);
@@ -64,6 +58,7 @@ void handleKmMouseButtonForward0(const char *command);
 void handleKmMouseButtonBackward1(const char *command);
 void handleKmMouseButtonBackward0(const char *command);
 void handleKmWheel(const char *command);
+void handleBridgeMouseMode(const char *command);
 
 void handleUsbHello(const char *command);
 void handleUsbGoodbye(const char *command);

@@ -1,0 +1,10 @@
+{
+  "xinput": {},
+  "mouse": {
+    "reads": 0,
+    "timeouts": 0,
+    "errors": [
+      5
+    ]
+  }
+}

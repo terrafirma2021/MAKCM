@@ -1,0 +1,6 @@
+{
+  "failures": [
+    "invalid_duration_or_rate"
+  ],
+  "pass": false
+}

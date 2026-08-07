@@ -1,0 +1,44 @@
+{
+  "failures": [
+    "no_target_mouse_activity"
+  ],
+  "pass": false,
+  "pid": "3519",
+  "raw_mouse": {
+    "device_info_errors": [],
+    "errors": [],
+    "gaps_over_20ms": 0,
+    "gaps_over_50ms": 0,
+    "max_target_gap_ms": 0.0,
+    "non_target_events": 0,
+    "raw_total": 0,
+    "samples": [],
+    "target_button_events": 0,
+    "target_dx": 0,
+    "target_dy": 0,
+    "target_events": 0,
+    "target_paths": {},
+    "target_wheel": 0
+  },
+  "seconds": 20.0,
+  "target_pattern": "VID_4131&PID_3519",
+  "vid": "4131",
+  "xinput": {
+    "errors": [],
+    "last": {
+      "buttons": 0,
+      "left_trigger": 0,
+      "lx": -128,
+      "ly": 384,
+      "packet": 699659,
+      "right_trigger": 0,
+      "rx": -128,
+      "ry": 0
+    },
+    "max_packet_change_gap_ms": 16.938,
+    "packet_changes": 1309,
+    "polls": 1310,
+    "success": 1310,
+    "user": 0
+  }
+}

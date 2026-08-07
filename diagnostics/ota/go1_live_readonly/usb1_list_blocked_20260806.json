@@ -1,0 +1,26 @@
+{
+  "schema": "makcm.go1-usb1-descriptor.v1",
+  "captured_utc": "2026-08-06T06:56:00Z",
+  "flash_write": false,
+  "ota_commands": false,
+  "windows_com_download": false,
+  "label": "usb1_list_blocked",
+  "blocked": true,
+  "reason": "target_left_usb1_persona_not_enumerated",
+  "expected_examples": ["4131:3519 proxy persona when Device path present"],
+  "note": "libusb --list and PnP USB/HID scan found no 4131:3519 and no Espressif 303A left Device. Do not flash to force enumeration. Replug Windows USB1 Device cable when awake, then re-run go1_capture_usb1_descriptor.py.",
+  "libusb_device_count": 12,
+  "libusb_vids_pids": [
+    "0001:0201",
+    "1106:3483",
+    "05e3:0608",
+    "2109:3431",
+    "048d:5702",
+    "1532:007b",
+    "373b:1278",
+    "320f:5088",
+    "8087:0026",
+    "8086:06ed"
+  ],
+  "g08_static_pass": false
+}

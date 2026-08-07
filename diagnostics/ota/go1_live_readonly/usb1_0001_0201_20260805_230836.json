@@ -1,0 +1,85 @@
+{
+  "schema": "makcm.go1-usb1-descriptor.v1",
+  "captured_utc": "2026-08-05T23:08:36.677718+00:00",
+  "flash_write": false,
+  "ota_commands": false,
+  "windows_com_download": false,
+  "label": "usb1_0001_0201",
+  "snapshot": {
+    "hub": "\\\\?\\usb#vid_05e3&pid_0608#5&389ab2c2&0&11#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+    "port": 3,
+    "vid": "0001",
+    "pid": "0201",
+    "device": "120110010000004001000102100001020301",
+    "configuration": "0902870003010080fa0904000000010100000924010001280001010c24020101010002030000000a240609010101020200092403030103000900090401000001020000090401010101020000072401010101000b2402010202100144ac0009050209c0000100000725010000000009040300010300000009210102000122210007058103080001",
+    "topology": {
+      "declared_total": 135,
+      "raw_length": 135,
+      "declared_interfaces": 3,
+      "interfaces": [
+        {
+          "number": 0,
+          "alternate": 0,
+          "class": 1,
+          "subclass": 1,
+          "protocol": 0,
+          "endpoints": []
+        },
+        {
+          "number": 1,
+          "alternate": 0,
+          "class": 1,
+          "subclass": 2,
+          "protocol": 0,
+          "endpoints": []
+        },
+        {
+          "number": 1,
+          "alternate": 1,
+          "class": 1,
+          "subclass": 2,
+          "protocol": 0,
+          "endpoints": [
+            2
+          ]
+        },
+        {
+          "number": 3,
+          "alternate": 0,
+          "class": 3,
+          "subclass": 0,
+          "protocol": 0,
+          "endpoints": [
+            129
+          ]
+        }
+      ],
+      "endpoints": [
+        {
+          "address": 2,
+          "attributes": 9,
+          "packet_size": 192,
+          "interval": 1,
+          "interface": 1
+        },
+        {
+          "address": 129,
+          "attributes": 3,
+          "packet_size": 8,
+          "interval": 1,
+          "interface": 3
+        }
+      ]
+    },
+    "strings": {},
+    "hid_reports": {},
+    "bos": null,
+    "qualifier": null,
+    "errors": [],
+    "capture_path": "windows_hub",
+    "analysis": {
+      "maintenance_like_interfaces": [],
+      "g08_static_pass": true
+    }
+  }
+}

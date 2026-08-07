@@ -1,0 +1,52 @@
+{
+  "bos": null,
+  "configuration": "0902290001010080320904000002030000000921100100012200200705810340000a0705020340000a",
+  "device": "120100020000004031411935000101020301",
+  "errors": [
+    "hid_report:0:[Errno 22] Invalid parameter"
+  ],
+  "hid_reports": {},
+  "pid": "3519",
+  "qualifier": null,
+  "strings": {
+    "0:0000": "04030904",
+    "1:0409": "10034c0069007400650045004d004600",
+    "2:0409": "160343006f006e00740072006f006c006c0065007200",
+    "3:0409": "1a03310032003300340035003600370038003900300031003200"
+  },
+  "topology": {
+    "declared_interfaces": 1,
+    "declared_total": 41,
+    "endpoints": [
+      {
+        "address": 129,
+        "attributes": 3,
+        "interface": 0,
+        "interval": 10,
+        "packet_size": 64
+      },
+      {
+        "address": 2,
+        "attributes": 3,
+        "interface": 0,
+        "interval": 10,
+        "packet_size": 64
+      }
+    ],
+    "interfaces": [
+      {
+        "alternate": 0,
+        "class": 3,
+        "endpoints": [
+          129,
+          2
+        ],
+        "number": 0,
+        "protocol": 0,
+        "subclass": 0
+      }
+    ],
+    "raw_length": 41
+  },
+  "vid": "4131"
+}

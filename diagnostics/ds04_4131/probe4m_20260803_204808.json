@@ -1,0 +1,27 @@
+{
+  "artifacts": {},
+  "baud": 4000000,
+  "error": "unexpected response line: 'km.\\x00'",
+  "events": [
+    {
+      "direction": "event",
+      "line": "serial_process_guard:clear",
+      "timestamp_utc": "2026-08-03T12:48:02.755+00:00"
+    },
+    {
+      "direction": "command",
+      "line": "km.caps()",
+      "timestamp_utc": "2026-08-03T12:48:02.757+00:00"
+    },
+    {
+      "direction": "response",
+      "line": "km.\u0000",
+      "timestamp_utc": "2026-08-03T12:48:02.777+00:00"
+    }
+  ],
+  "finished_at_utc": "2026-08-03T12:48:02.777+00:00",
+  "outcome": "failure",
+  "port": "/dev/ttyACM0",
+  "schema": "makcm.stick-phase3-transcript.v1",
+  "started_at_utc": "2026-08-03T12:48:02.738+00:00"
+}

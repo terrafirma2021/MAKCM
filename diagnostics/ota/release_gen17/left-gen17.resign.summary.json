@@ -1,0 +1,10 @@
+{
+  "role": "left",
+  "generation": 17,
+  "note": "left gen17: #8 partition-hash fix ported, UART ISR in IRAM",
+  "image_sha256": "45ac2fc666e1de177154a218c8d9174d6215645226a409f3d72f367bec1863b1",
+  "package_sha256": "ba3fc6239d1f50d0b2d0c3fed308a3a4313b311f6190fdcc235c5f5226e73d37",
+  "image_bytes": 484688,
+  "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd",
+  "remote_dir": "/home/li/.local/share/makcm-ota/gen17-release"
+}

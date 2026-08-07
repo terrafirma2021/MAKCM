@@ -1,0 +1,17 @@
+{
+  "captured_utc": "2026-08-06T10:51:11.033108+00:00",
+  "stdout": "{\"ok\": true, \"label\": \"a0\", \"state\": 0, \"active\": 16, \"target\": 0, \"flags\": 204, \"local_valid\": true, \"maint\": false, \"v2_error\": \"OtaToolError: OTA status payload must be exactly 24 bytes\"}\n",
+  "stderr": "",
+  "exit": 0,
+  "status": {
+    "ok": true,
+    "label": "a0",
+    "state": 0,
+    "active": 16,
+    "target": 0,
+    "flags": 204,
+    "local_valid": true,
+    "maint": false,
+    "v2_error": "OtaToolError: OTA status payload must be exactly 24 bytes"
+  }
+}

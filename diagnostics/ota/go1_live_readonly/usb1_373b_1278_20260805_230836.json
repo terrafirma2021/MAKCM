@@ -1,0 +1,86 @@
+{
+  "schema": "makcm.go1-usb1-descriptor.v1",
+  "captured_utc": "2026-08-05T23:08:36.753058+00:00",
+  "flash_write": false,
+  "ota_commands": false,
+  "windows_com_download": false,
+  "label": "usb1_373b_1278",
+  "snapshot": {
+    "hub": "\\\\?\\usb#vid_05e3&pid_0608#5&389ab2c2&0&11#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+    "port": 2,
+    "vid": "373b",
+    "pid": "1278",
+    "device": "12010002000000403b377812010501020301",
+    "configuration": "09025400030100a0f509040000010301020009211101000122570007058103070001090401000103000000092111010001220a010705820331000409040200010301010009211101000122390007058303080004",
+    "topology": {
+      "declared_total": 84,
+      "raw_length": 84,
+      "declared_interfaces": 3,
+      "interfaces": [
+        {
+          "number": 0,
+          "alternate": 0,
+          "class": 3,
+          "subclass": 1,
+          "protocol": 2,
+          "endpoints": [
+            129
+          ]
+        },
+        {
+          "number": 1,
+          "alternate": 0,
+          "class": 3,
+          "subclass": 0,
+          "protocol": 0,
+          "endpoints": [
+            130
+          ]
+        },
+        {
+          "number": 2,
+          "alternate": 0,
+          "class": 3,
+          "subclass": 1,
+          "protocol": 1,
+          "endpoints": [
+            131
+          ]
+        }
+      ],
+      "endpoints": [
+        {
+          "address": 129,
+          "attributes": 3,
+          "packet_size": 7,
+          "interval": 1,
+          "interface": 0
+        },
+        {
+          "address": 130,
+          "attributes": 3,
+          "packet_size": 49,
+          "interval": 4,
+          "interface": 1
+        },
+        {
+          "address": 131,
+          "attributes": 3,
+          "packet_size": 8,
+          "interval": 4,
+          "interface": 2
+        }
+      ]
+    },
+    "strings": {},
+    "hid_reports": {},
+    "bos": null,
+    "qualifier": null,
+    "errors": [],
+    "capture_path": "windows_hub",
+    "analysis": {
+      "maintenance_like_interfaces": [],
+      "g08_static_pass": true
+    }
+  }
+}

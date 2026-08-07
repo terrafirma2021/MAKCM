@@ -1,0 +1,52 @@
+{
+  "schema": "makcm.ota-base-flash-audit.v1",
+  "timestamp": "2026-08-03T22:09:57.4214555+08:00",
+  "role": "right",
+  "port": "COM6",
+  "chip": "ESP32-S3 QFN56 rev v0.2",
+  "mac": "10:51:db:43:46:90",
+  "trust": {
+    "key_id": "64986a0ac3b1bd5579f2df702989aa4d",
+    "anchor_sha256": "e9e41016664f585a048aac574339ca17179a11eac2287cb7ee9883784b9afe47",
+    "embedded_anchor_verified": true
+  },
+  "flash": {
+    "flash_mode": "dio",
+    "flash_frequency": "80m",
+    "flash_size": "4MB",
+    "segments": [
+      {
+        "offset": "0x0",
+        "path": "MAKCM_ESP32s3_HID_Mouse_Right/.pio/build/RIGHT/bootloader.bin",
+        "bytes": 15104,
+        "sha256": "e01a2300de23c8d601e9f2a37684b5dbc83ae37132d5a8833e23520afd895f92"
+      },
+      {
+        "offset": "0x8000",
+        "path": "MAKCM_ESP32s3_HID_Mouse_Right/.pio/build/RIGHT/partitions.bin",
+        "bytes": 3072,
+        "sha256": "0698559d180d93b64d5cb98f0729e0cd4de6efd1a0405eec48b6a631004a4d19"
+      },
+      {
+        "offset": "0xe000",
+        "path": "MAKCM_ESP32s3_HID_Mouse_Right/.pio/build/RIGHT/ota_data_initial.bin",
+        "bytes": 8192,
+        "sha256": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f"
+      },
+      {
+        "offset": "0x10000",
+        "path": "MAKCM_ESP32s3_HID_Mouse_Right/.pio/build/RIGHT/firmware.bin",
+        "bytes": 456688,
+        "sha256": "9bb6d988ca4610c24cd1841adfd8e4cae2e62d91dfc7bc637094756299491650"
+      }
+    ],
+    "all_segment_hashes_verified_by_esptool": true,
+    "hard_reset_completed": true
+  },
+  "post_reset": {
+    "rom_port_present": false,
+    "proxy_parent_present_after_10_seconds": false,
+    "runtime_wiring_restored": false,
+    "note": "The right USB-OTG port was still on the Windows download cable; restore the downstream controller/runtime wiring before judging proxy enumeration."
+  }
+}

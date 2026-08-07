@@ -1,0 +1,34 @@
+{
+  "schema": "makcm.go1-right-gen16-pac.v1",
+  "captured_utc": "2026-08-06T12:24:23.296240+00:00",
+  "package_sha256": "31a90668bd4fec0c3e96ddc6c353aa36e799c8a56823d68934b734e8e2a8f0a4",
+  "image_sha256": "86f8c63f09d26a2ee1c2d2aee6bef605baa99526ffdfd33dd9ad1c31c14e435a",
+  "exit_code": 1,
+  "stdout": "{\"phase\": \"package_ok\", \"package_sha\": \"31a90668bd4fec0c3e96ddc6c353aa36e799c8a56823d68934b734e8e2a8f0a4\", \"package_bytes\": 482400, \"image_sha\": \"86f8c63f09d26a2ee1c2d2aee6bef605baa99526ffdfd33dd9ad1c31c14e435a\"}\n{\"phase\": \"left_before\", \"state\": 0, \"active\": 16, \"target\": 0, \"reason\": 0, \"flags\": 204, \"local_valid\": true, \"maint\": false, \"health\": false, \"trust\": true, \"rollback\": true}\n{\"phase\": \"FAIL\", \"traceback\": \"Traceback (most recent call last):\\n  File \\\"<stdin>\\\", line 61, in <module>\\n  File \\\"/home/li/.local/share/makcm-ota/go1-right-gen16/makcm_ota_tool.py\\\", line 1923, in prepare\\n    raise exc\\n  File \\\"/home/li/.local/share/makcm-ota/go1-right-gen16/makcm_ota_tool.py\\\", line 1916, in prepare\\n    self.enter_maintenance()\\n  File \\\"/home/li/.local/share/makcm-ota/go1-right-gen16/makcm_ota_tool.py\\\", line 1803, in enter_maintenance\\n    return self.request(CMD_ENTER_MAINTENANCE)\\n  File \\\"/home/li/.local/share/makcm-ota/go1-right-gen16/makcm_ota_tool.py\\\", line 1791, in request\\n    raise OtaNack(frame, decode_status_payload(frame.payload))\\nmakcm_ota_tool.OtaNack: OTA NACK reason=7 (busy)\\n\"}\n",
+  "stderr": "Traceback (most recent call last):\n  File \"<stdin>\", line 61, in <module>\n  File \"/home/li/.local/share/makcm-ota/go1-right-gen16/makcm_ota_tool.py\", line 1923, in prepare\n    raise exc\n  File \"/home/li/.local/share/makcm-ota/go1-right-gen16/makcm_ota_tool.py\", line 1916, in prepare\n    self.enter_maintenance()\n  File \"/home/li/.local/share/makcm-ota/go1-right-gen16/makcm_ota_tool.py\", line 1803, in enter_maintenance\n    return self.request(CMD_ENTER_MAINTENANCE)\n  File \"/home/li/.local/share/makcm-ota/go1-right-gen16/makcm_ota_tool.py\", line 1791, in request\n    raise OtaNack(frame, decode_status_payload(frame.payload))\nmakcm_ota_tool.OtaNack: OTA NACK reason=7 (busy)\n",
+  "events": [
+    {
+      "phase": "package_ok",
+      "package_sha": "31a90668bd4fec0c3e96ddc6c353aa36e799c8a56823d68934b734e8e2a8f0a4",
+      "package_bytes": 482400,
+      "image_sha": "86f8c63f09d26a2ee1c2d2aee6bef605baa99526ffdfd33dd9ad1c31c14e435a"
+    },
+    {
+      "phase": "left_before",
+      "state": 0,
+      "active": 16,
+      "target": 0,
+      "reason": 0,
+      "flags": 204,
+      "local_valid": true,
+      "maint": false,
+      "health": false,
+      "trust": true,
+      "rollback": true
+    },
+    {
+      "phase": "FAIL",
+      "traceback": "Traceback (most recent call last):\n  File \"<stdin>\", line 61, in <module>\n  File \"/home/li/.local/share/makcm-ota/go1-right-gen16/makcm_ota_tool.py\", line 1923, in prepare\n    raise exc\n  File \"/home/li/.local/share/makcm-ota/go1-right-gen16/makcm_ota_tool.py\", line 1916, in prepare\n    self.enter_maintenance()\n  File \"/home/li/.local/share/makcm-ota/go1-right-gen16/makcm_ota_tool.py\", line 1803, in enter_maintenance\n    return self.request(CMD_ENTER_MAINTENANCE)\n  File \"/home/li/.local/share/makcm-ota/go1-right-gen16/makcm_ota_tool.py\", line 1791, in request\n    raise OtaNack(frame, decode_status_payload(frame.payload))\nmakcm_ota_tool.OtaNack: OTA NACK reason=7 (busy)\n"
+    }
+  ]
+}

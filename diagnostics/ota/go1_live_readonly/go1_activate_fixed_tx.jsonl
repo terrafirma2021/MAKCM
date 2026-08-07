@@ -1,0 +1,94 @@
+{"phase": "before", "state": 3, "active_generation": 5, "target_generation": 15, "status_flags": 61, "tx": 70811770, "hello_frame_tx": 70811770}
+{"phase": "status_v1", "state": 3, "active_generation": 5, "target_generation": 15, "status_flags": 61}
+{"phase": "activate_ack", "state": 4, "active_generation": 5, "target_generation": 15, "status_flags": 61, "reason": 0}
+{"phase": "probe_error", "poll": 0, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 0, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 0, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 1, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 1, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 1, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 2, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 2, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 2, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 3, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 3, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 3, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 4, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 4, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 4, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 5, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 5, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 5, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 6, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 6, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 6, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 7, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 7, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 7, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 8, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 8, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 8, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 9, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 9, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 9, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 10, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 10, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 10, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 11, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 11, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 11, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 12, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 12, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 12, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 13, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 13, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 13, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 14, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 14, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 14, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 15, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 15, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 15, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 16, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 16, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 16, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 17, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 17, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 17, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 18, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 18, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 18, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 19, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 19, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 19, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 20, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 20, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 20, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 21, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 21, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 21, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 22, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 22, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 22, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 23, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 23, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 23, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 24, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 24, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 24, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 25, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 25, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 25, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 26, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 26, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 26, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 27, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 27, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 27, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 28, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 28, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 28, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "probe_error", "poll": 29, "probe": "fresh", "error_type": "OtaNack", "error": "OTA NACK reason=5 (wrong_transaction)"}
+{"phase": "poll", "poll": 29, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_RUNNING_15_WAIT_VALID", "poll": 29, "probe": "old", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_boot_validated": false, "frame_tx": 70811770, "client_tx": 70811770}
+{"phase": "GO1_INCONCLUSIVE"}

@@ -1,0 +1,29 @@
+MAKCM OTA independent audit deliverables
+Generated: 2026-08-04
+
+SOURCE EVIDENCE
+- Archive: MAKCM_GPT_PRO_OTA_AUDIT.zip
+- Expected SHA-256: 275D8F03E0365BB3A3C98AA670ABBD33A4E555BBDFBA2FB84F0D46C8FAD7E87F
+- Verified SHA-256: 275D8F03E0365BB3A3C98AA670ABBD33A4E555BBDFBA2FB84F0D46C8FAD7E87F
+- Frozen source files reviewed: 32
+- Path traversal entries: none found during read-only extraction validation
+- Source identity stated by dossier: acf3d25d994b4fea8bde411ce24df69f3b4a3d7b, dirty whitelist snapshot
+
+DELIVERABLES
+FAA55CF6B4F27582F502AE8213EA2164CCEC591E1BAC4982E6D925FABFDAC9C9  MAKCM_OTA_INDEPENDENT_AUDIT_CN.md
+EC62FFFB93DBFFEE345EDDFFFCC429122B1954E2EF9DEB0241A245CFD96778A6  MAKCM_OTA_MINIMAL_REPAIR_REFERENCE.diff
+E1211BA53E6AD41D94D2FB2FF3551DDC21F0553D348837A1C8535A46CF5E654A  MAKCM_OTA_ACCEPTANCE_MATRIX_CN.md
+
+VALIDATION PERFORMED IN THIS AUDIT
+- Read dossier first, then reviewed the frozen relevant source/config/test/evidence set.
+- Unified diff: git apply --check passed against the frozen extracted tree.
+- Patched Python tool: syntax parsing (python -m py_compile) passed with bytecode disabled.
+- No ESP-IDF/PlatformIO C/C++ build was run.
+- No unit/integration/hardware test or firmware flashing was run.
+- No private key, password, browser state, or raw coredump memory was requested or accessed.
+
+INTERPRETATION
+- The report's bootloader rollback causal chain is evidence-backed.
+- The original early-reset trigger is not uniquely proved by the frozen evidence.
+- PATCHSET-1 is an adjudication/stop-bleeding reference, not production V2 completion.
+- Production V2 record/tombstone/protocol/journal changes are specified in the report and matrix.

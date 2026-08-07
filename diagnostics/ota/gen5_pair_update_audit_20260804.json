@@ -1,0 +1,153 @@
+{
+  "created_at": "2026-08-04T11:17:36.944+00:00",
+  "events": [
+    {
+      "at": "2026-08-04T11:17:36.944+00:00",
+      "event": "journal_created"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-04T11:17:37.237+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "at": "2026-08-04T11:18:39.875+00:00",
+      "event": "prepared",
+      "result": {
+        "activated": false,
+        "command": "pair-prepare",
+        "prepared_order": [
+          "right",
+          "left"
+        ],
+        "transaction_id": 3826835173
+      }
+    },
+    {
+      "at": "2026-08-04T11:18:42.736+00:00",
+      "event": "activated",
+      "result": {
+        "activation_order": [
+          "right",
+          "left"
+        ],
+        "atomic": false,
+        "command": "pair-activate",
+        "peer_confirmation": {
+          "active_generation": 5,
+          "status_flags": 126,
+          "target_generation": 5
+        }
+      }
+    },
+    {
+      "at": "2026-08-04T11:20:02.820+00:00",
+      "event": "journal_resumed",
+      "phase": "activated"
+    },
+    {
+      "active_generation": 5,
+      "at": "2026-08-04T11:20:03.112+00:00",
+      "event": "left_preflight",
+      "state": 5,
+      "target_generation": 5
+    },
+    {
+      "at": "2026-08-04T11:20:06.718+00:00",
+      "event": "confirmed",
+      "result": {
+        "active_generation": 5,
+        "command": "pair-confirm",
+        "confirm_order": [
+          "right",
+          "left"
+        ],
+        "pair_health_confirmed": true,
+        "transaction_id": 3826835173
+      }
+    },
+    {
+      "at": "2026-08-04T11:34:00.979+00:00",
+      "event": "journal_resumed",
+      "phase": "confirmed"
+    },
+    {
+      "active_generation": 5,
+      "at": "2026-08-04T11:34:01.247+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "at": "2026-08-04T11:34:01.251+00:00",
+      "event": "already_current"
+    },
+    {
+      "active_generation": 5,
+      "at": "2026-08-04T11:34:01.544+00:00",
+      "event": "post_confirm_verified"
+    },
+    {
+      "at": "2026-08-04T11:35:18.815+00:00",
+      "event": "journal_resumed",
+      "phase": "confirmed"
+    },
+    {
+      "active_generation": 5,
+      "at": "2026-08-04T11:35:19.107+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "at": "2026-08-04T11:35:19.115+00:00",
+      "event": "already_current"
+    },
+    {
+      "active_generation": 5,
+      "at": "2026-08-04T11:35:19.441+00:00",
+      "event": "post_confirm_verified"
+    }
+  ],
+  "left": {
+    "generation": 5,
+    "image_sha256": "f0c779e366c78ecb69a36bbb309997e51015a718ba9c2e58e687e8a0a541de33",
+    "image_size": 416704,
+    "max_peer_generation": 5,
+    "min_peer_generation": 4,
+    "package_sha256": "81b191e9bdf5d9f0566563b37da59ce9e5d7603c611bd805a53ef2bebb6b2ed9",
+    "path": "/home/li/.local/state/makcm-ota/gen5-ota-bootstrap.tx3826835173.packages/left-81b191e9bdf5d9f0566563b37da59ce9e5d7603c611bd805a53ef2bebb6b2ed9.mkota",
+    "role": "left",
+    "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd"
+  },
+  "phase": "confirmed",
+  "port": "/dev/ttyACM0",
+  "right": {
+    "generation": 5,
+    "image_sha256": "fa7a41f2217b5ea6bc5fec8bc9d83d726e57e9eead2c30349d877b31d0599e5e",
+    "image_size": 457424,
+    "max_peer_generation": 5,
+    "min_peer_generation": 4,
+    "package_sha256": "0899505b7da9c7e56f98b5f18b0c4fa43699738a6ed25cb51722748baba3b9a2",
+    "path": "/home/li/.local/state/makcm-ota/gen5-ota-bootstrap.tx3826835173.packages/right-0899505b7da9c7e56f98b5f18b0c4fa43699738a6ed25cb51722748baba3b9a2.mkota",
+    "role": "right",
+    "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd"
+  },
+  "runtime_scope": "system",
+  "runtime_unit": null,
+  "runtime_was_active": false,
+  "schema": "makcm.pair-auto-update.v1",
+  "target_generation": 5,
+  "transaction_id": 3826835173,
+  "updated_at": "2026-08-04T11:35:19.441+00:00",
+  "usb_identity": {
+    "bus_path": "1-7",
+    "pid": "55d3",
+    "port": "/dev/ttyACM0",
+    "serial": "5ACC041332",
+    "tty": "ttyACM0",
+    "vid": "1a86"
+  }
+}

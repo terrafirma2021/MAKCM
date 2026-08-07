@@ -1,0 +1,11 @@
+{
+  "schema": "makcm.go1-readonly-status.v1",
+  "captured_utc": "2026-08-06T10:14:49.019905+00:00",
+  "host": "192.168.137.2",
+  "port": "/dev/ttyACM0",
+  "flash_write": false,
+  "windows_com_download": false,
+  "exit_code": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"<stdin>\", line 10, in <module>\n  File \"/home/li/.local/share/makcm-ota/go1-left-gen15/makcm_ota_tool.py\", line 1800, in hello\n    return self.request(CMD_HELLO)\n  File \"/home/li/.local/share/makcm-ota/go1-left-gen15/makcm_ota_tool.py\", line 1764, in request\n    frame = self._read_response(\n  File \"/home/li/.local/share/makcm-ota/go1-left-gen15/makcm_ota_tool.py\", line 1726, in _read_response\n    raise OtaToolError(\"timed out waiting for OTA response\")\nmakcm_ota_tool.OtaToolError: timed out waiting for OTA response\n"
+}

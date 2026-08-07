@@ -1,0 +1,127 @@
+{
+  "schema": "makcm.go1-usb1-descriptor.v1",
+  "captured_utc": "2026-08-06T11:52:49.882831+00:00",
+  "flash_write": false,
+  "ota_commands": false,
+  "windows_com_download": false,
+  "label": "usb1_controller_post_go1",
+  "snapshot": {
+    "hub": "\\\\?\\usb#root_hub30#4&33974a7c&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+    "port": 9,
+    "vid": "4131",
+    "pid": "3519",
+    "device": "120100020000004031411935000101020301",
+    "configuration": "0902920005010080fa0904000002ff5d0100112110010125811400000000130108000007058103200001070501032000080904010000fffd1304064100010103090402000103010100092111010001225c000705820340000209040300010301020009211101000122420007058303400001090404000203000000092111010001221e000705840340000107050203400001",
+    "topology": {
+      "declared_total": 146,
+      "raw_length": 146,
+      "declared_interfaces": 5,
+      "interfaces": [
+        {
+          "number": 0,
+          "alternate": 0,
+          "class": 255,
+          "subclass": 93,
+          "protocol": 1,
+          "endpoints": [
+            129,
+            1
+          ]
+        },
+        {
+          "number": 1,
+          "alternate": 0,
+          "class": 255,
+          "subclass": 253,
+          "protocol": 19,
+          "endpoints": []
+        },
+        {
+          "number": 2,
+          "alternate": 0,
+          "class": 3,
+          "subclass": 1,
+          "protocol": 1,
+          "endpoints": [
+            130
+          ]
+        },
+        {
+          "number": 3,
+          "alternate": 0,
+          "class": 3,
+          "subclass": 1,
+          "protocol": 2,
+          "endpoints": [
+            131
+          ]
+        },
+        {
+          "number": 4,
+          "alternate": 0,
+          "class": 3,
+          "subclass": 0,
+          "protocol": 0,
+          "endpoints": [
+            132,
+            2
+          ]
+        }
+      ],
+      "endpoints": [
+        {
+          "address": 129,
+          "attributes": 3,
+          "packet_size": 32,
+          "interval": 1,
+          "interface": 0
+        },
+        {
+          "address": 1,
+          "attributes": 3,
+          "packet_size": 32,
+          "interval": 8,
+          "interface": 0
+        },
+        {
+          "address": 130,
+          "attributes": 3,
+          "packet_size": 64,
+          "interval": 2,
+          "interface": 2
+        },
+        {
+          "address": 131,
+          "attributes": 3,
+          "packet_size": 64,
+          "interval": 1,
+          "interface": 3
+        },
+        {
+          "address": 132,
+          "attributes": 3,
+          "packet_size": 64,
+          "interval": 1,
+          "interface": 4
+        },
+        {
+          "address": 2,
+          "attributes": 3,
+          "packet_size": 64,
+          "interval": 1,
+          "interface": 4
+        }
+      ]
+    },
+    "strings": {},
+    "hid_reports": {},
+    "bos": null,
+    "qualifier": null,
+    "errors": [],
+    "capture_path": "windows_hub",
+    "analysis": {
+      "maintenance_like_interfaces": [],
+      "g08_static_pass": true
+    }
+  }
+}

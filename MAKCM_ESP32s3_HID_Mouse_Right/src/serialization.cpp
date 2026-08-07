@@ -3,7 +3,6 @@
 
 void EspUsbHost::sendDeviceInfo()
 {
-    Serial1.print("USB_sendDeviceInfo:");
     JsonDocument doc;
     doc["speed"] = device_info.speed;
     doc["dev_addr"] = device_info.dev_addr;
@@ -12,13 +11,14 @@ void EspUsbHost::sendDeviceInfo()
     doc["str_desc_manufacturer"] = device_info.str_desc_manufacturer;
     doc["str_desc_product"] = device_info.str_desc_product;
     doc["str_desc_serial_num"] = device_info.str_desc_serial_num;
-    serializeJson(doc, Serial1);
-    Serial1.println();
+    String output("USB_sendDeviceInfo:");
+    serializeJson(doc, output);
+    output += '\n';
+    serial1Write(reinterpret_cast<const uint8_t *>(output.c_str()), output.length());
 }
 
 void EspUsbHost::sendDescriptorDevice()
 {
-    Serial1.print("USB_sendDescriptorDevice:");
     JsonDocument doc;
     doc["bLength"] = descriptor_device.bLength;
     doc["bDescriptorType"] = descriptor_device.bDescriptorType;
@@ -34,13 +34,14 @@ void EspUsbHost::sendDescriptorDevice()
     doc["iProduct"] = descriptor_device.iProduct;
     doc["iSerialNumber"] = descriptor_device.iSerialNumber;
     doc["bNumConfigurations"] = descriptor_device.bNumConfigurations;
-    serializeJson(doc, Serial1);
-    Serial1.println();
+    String output("USB_sendDescriptorDevice:");
+    serializeJson(doc, output);
+    output += '\n';
+    serial1Write(reinterpret_cast<const uint8_t *>(output.c_str()), output.length());
 }
 
 void EspUsbHost::sendEndpointDescriptors()
 {
-    Serial1.print("USB_sendEndpointDescriptors:");
     JsonDocument doc;
     JsonArray array = doc.to<JsonArray>();
 
@@ -57,13 +58,14 @@ void EspUsbHost::sendEndpointDescriptors()
         desc["wMaxPacketSize"] = endpoint_descriptors[i].wMaxPacketSize;
         desc["bInterval"] = endpoint_descriptors[i].bInterval;
     }
-    serializeJson(doc, Serial1);
-    Serial1.println();
+    String output("USB_sendEndpointDescriptors:");
+    serializeJson(doc, output);
+    output += '\n';
+    serial1Write(reinterpret_cast<const uint8_t *>(output.c_str()), output.length());
 }
 
 void EspUsbHost::sendInterfaceDescriptors()
 {
-    Serial1.print("USB_sendInterfaceDescriptors:");
     JsonDocument doc;
     JsonArray array = doc.to<JsonArray>();
     for (int i = 0; i < interfaceCounter; ++i)
@@ -79,13 +81,14 @@ void EspUsbHost::sendInterfaceDescriptors()
         desc["bInterfaceProtocol"] = interface_descriptors[i].bInterfaceProtocol;
         desc["iInterface"] = interface_descriptors[i].iInterface;
     }
-    serializeJson(doc, Serial1);
-    Serial1.println();
+    String output("USB_sendInterfaceDescriptors:");
+    serializeJson(doc, output);
+    output += '\n';
+    serial1Write(reinterpret_cast<const uint8_t *>(output.c_str()), output.length());
 }
 
 void EspUsbHost::sendHidDescriptors()
 {
-    Serial1.print("USB_sendHidDescriptors:");
     JsonDocument doc;
     JsonArray array = doc.to<JsonArray>();
     for (int i = 0; i < hidDescriptorCounter; ++i)
@@ -99,13 +102,14 @@ void EspUsbHost::sendHidDescriptors()
         desc["bReportType"] = hid_descriptors[i].bReportType;
         desc["wReportLength"] = hid_descriptors[i].wReportLength;
     }
-    serializeJson(doc, Serial1);
-    Serial1.println();
+    String output("USB_sendHidDescriptors:");
+    serializeJson(doc, output);
+    output += '\n';
+    serial1Write(reinterpret_cast<const uint8_t *>(output.c_str()), output.length());
 }
 
 void EspUsbHost::sendIADescriptors()
 {
-    Serial1.print("USB_sendIADescriptors:");
     JsonDocument doc;
     doc["bLength"] = descriptor_interface_association.bLength;
     doc["bDescriptorType"] = descriptor_interface_association.bDescriptorType;
@@ -115,13 +119,14 @@ void EspUsbHost::sendIADescriptors()
     doc["bFunctionSubClass"] = descriptor_interface_association.bFunctionSubClass;
     doc["bFunctionProtocol"] = descriptor_interface_association.bFunctionProtocol;
     doc["iFunction"] = descriptor_interface_association.iFunction;
-    serializeJson(doc, Serial1);
-    Serial1.println();
+    String output("USB_sendIADescriptors:");
+    serializeJson(doc, output);
+    output += '\n';
+    serial1Write(reinterpret_cast<const uint8_t *>(output.c_str()), output.length());
 }
 
 void EspUsbHost::sendEndpointData()
 {
-    Serial1.print("USB_sendEndpointData:");
     JsonDocument doc;
     JsonArray array = doc.to<JsonArray>();
 
@@ -134,13 +139,14 @@ void EspUsbHost::sendEndpointData()
         data["bInterfaceProtocol"] = endpoint_data_list[i].bInterfaceProtocol;
         data["bCountryCode"] = endpoint_data_list[i].bCountryCode;
     }
-    serializeJson(doc, Serial1);
-    Serial1.println();
+    String output("USB_sendEndpointData:");
+    serializeJson(doc, output);
+    output += '\n';
+    serial1Write(reinterpret_cast<const uint8_t *>(output.c_str()), output.length());
 }
 
 void EspUsbHost::sendUnknownDescriptors()
 {
-    Serial1.print("USB_sendUnknownDescriptors:");
     JsonDocument doc;
     JsonArray array = doc.to<JsonArray>();
     for (int i = 0; i < unknownDescriptorCounter; ++i)
@@ -150,13 +156,14 @@ void EspUsbHost::sendUnknownDescriptors()
         desc["bDescriptorType"] = unknown_descriptors[i].bDescriptorType;
         desc["data"] = unknown_descriptors[i].data;
     }
-    serializeJson(doc, Serial1);
-    Serial1.println();
+    String output("USB_sendUnknownDescriptors:");
+    serializeJson(doc, output);
+    output += '\n';
+    serial1Write(reinterpret_cast<const uint8_t *>(output.c_str()), output.length());
 }
 
 void EspUsbHost::sendDescriptorconfig()
 {
-    Serial1.print("USB_sendDescriptorconfig:");
     JsonDocument doc;
     doc["bLength"] = descriptor_configuration.bLength;
     doc["bDescriptorType"] = descriptor_configuration.bDescriptorType;
@@ -166,6 +173,8 @@ void EspUsbHost::sendDescriptorconfig()
     doc["iConfiguration"] = descriptor_configuration.iConfiguration;
     doc["bmAttributes"] = descriptor_configuration.bmAttributes;
     doc["bMaxPower"] = descriptor_configuration.bMaxPower;
-    serializeJson(doc, Serial1);
-    Serial1.println();
+    String output("USB_sendDescriptorconfig:");
+    serializeJson(doc, output);
+    output += '\n';
+    serial1Write(reinterpret_cast<const uint8_t *>(output.c_str()), output.length());
 }

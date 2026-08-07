@@ -1,0 +1,6 @@
+{
+  "captured_utc": "2026-08-06T10:41:56.063780+00:00",
+  "stdout": "{\"phase\": \"text\", \"rx\": \"MAKCM native-left\\r\\n>>> \"}\n{\"ok\": false, \"label\": \"attempt0\", \"error\": \"OtaToolError: timed out waiting for OTA response\"}\n{\"ok\": false, \"label\": \"attempt1\", \"error\": \"OtaToolError: timed out waiting for OTA response\"}\n{\"ok\": false, \"label\": \"attempt2\", \"error\": \"OtaToolError: timed out waiting for OTA response\"}\n{\"ok\": false, \"label\": \"attempt3\", \"error\": \"OtaToolError: timed out waiting for OTA response\"}\n{\"ok\": false, \"label\": \"attempt4\", \"error\": \"OtaToolError: timed out waiting for OTA response\"}\n{\"ok\": false, \"label\": \"attempt5\", \"error\": \"OtaToolError: timed out waiting for OTA response\"}\n",
+  "stderr": "",
+  "exit": 0
+}

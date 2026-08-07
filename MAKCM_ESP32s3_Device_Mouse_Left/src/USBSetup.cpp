@@ -1,7 +1,8 @@
 #include "USBSetup.h"
-#include <USBHIDMouse.h>
 #include <USB.h>
 #include "tusb.h"
+#include "BridgeTransport.h"
+#include "PassthroughDevice.h"
 
 extern DeviceInfo device_info;
 extern DescriptorDevice descriptor_device;
@@ -19,7 +20,6 @@ extern DescriptorConfiguration configuration_descriptor;
 extern volatile bool deviceConnected;
 extern bool usbIsDebug;
 
-USBHIDMouse Mouse;
 extern ESPUSB USB;
 
 /*
@@ -28,61 +28,51 @@ extern ESPUSB USB;
 tud_descriptor_device_cb, tud_descriptor_configuration_cb, tud_descriptor_string_cb 
 */
 
-uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
-    static uint16_t desc[32];
-    const char* str;
-    uint8_t chr_count;
+extern "C" uint8_t const *tud_descriptor_device_cb(void) {
+    return Passthrough.profileReady() ? Passthrough.deviceDescriptor() : nullptr;
+}
 
-    if (index == 0) {
-        // Return language ID string descriptor (English) for now!
-        desc[1] = 0x0409;
-        desc[0] = (TUSB_DESC_STRING << 8) | (2 + 2);
-        return desc;
-    }
+extern "C" uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
+    return index == 0 && Passthrough.profileReady()
+        ? Passthrough.configurationDescriptor()
+        : nullptr;
+}
 
-
-    switch (index) {
-        case 1:
-            str = device_info.str_desc_manufacturer;
-            break;
-        case 2:
-            str = device_info.str_desc_product;
-            break;
-        case 3:
-            str = device_info.str_desc_serial_num;
-            break;
-        default:
-            return NULL; // TO DO, parse further strings
-    }
-
-    chr_count = strlen(str);
-    for (uint8_t i = 0; i < chr_count; i++) {
-        desc[1 + i] = str[i];
-    }
-
-    desc[0] = (TUSB_DESC_STRING << 8) | (2 * chr_count + 2);
-
-    return desc;
+extern "C" uint16_t const *tud_descriptor_string_cb(uint8_t index,
+                                                     uint16_t langid) {
+    return Passthrough.stringDescriptor(index, langid);
 }
 
 void requestUSBDescriptors() {
     vTaskDelay(200);
-    if (deviceConnected) {
-        return;
-    }
-    Serial1.println("READY");
 }
 
 void InitUSB() {
+    static bool initialized = false;
+    if (initialized) {
+        Passthrough.reconnectUsb();
+        return;
+    }
+    initialized = true;
 
+    if (!Passthrough.profileReady() || !Passthrough.beginUsb()) {
+        initialized = false;
+        Serial0.println("USB passthrough profile is incomplete");
+        return;
+    }
+
+    USB.VID(descriptor_device.idVendor);
+    USB.PID(descriptor_device.idProduct);
+    USB.manufacturerName(device_info.str_desc_manufacturer);
+    USB.productName(device_info.str_desc_product);
+    USB.serialNumber(device_info.str_desc_serial_num);
     USB.usbVersion(descriptor_device.bcdUSB);
     USB.firmwareVersion(descriptor_device.bcdDevice);
-    USB.usbPower(configuration_descriptor.bMaxPower);
+    USB.usbPower(Passthrough.profile().configPowerMa);
     USB.usbAttributes(configuration_descriptor.bmAttributes);
     USB.usbClass(descriptor_device.bDeviceClass);
     USB.usbSubClass(descriptor_device.bDeviceSubClass);
     USB.usbProtocol(descriptor_device.bDeviceProtocol);
 
-    Mouse.begin();
     USB.begin();
 }

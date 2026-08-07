@@ -1,0 +1,32 @@
+{
+  "failures": [],
+  "hz": 50.0,
+  "pass": true,
+  "pid": "3519",
+  "seconds": 5.0,
+  "vendor_collection": {
+    "feature_report_length": 0,
+    "hidp_status": "0x00110000",
+    "input_report_length": 65,
+    "input_value_caps": 1,
+    "link_collection_nodes": 2,
+    "output_report_length": 65,
+    "output_value_caps": 1,
+    "path": "\\\\?\\hid#vid_4131&pid_3519&mi_04#7&32d3c287&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+    "pid": "3519",
+    "usage": 1,
+    "usage_page": 65408,
+    "vid": "4131"
+  },
+  "vendor_output": {
+    "calls": 250,
+    "errors": [],
+    "success": 250
+  },
+  "vid": "4131",
+  "xinput": {
+    "calls": 250,
+    "errors": [],
+    "success": 250
+  }
+}

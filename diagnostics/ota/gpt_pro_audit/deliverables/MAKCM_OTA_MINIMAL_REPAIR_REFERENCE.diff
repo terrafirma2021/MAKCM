@@ -1,0 +1,706 @@
+# MAKCM OTA minimal repair reference patch (PATCHSET-1)
+#
+# This is a syntactically valid unified diff against the frozen attachment tree.
+# It has NOT been applied to the user's live repository, compiled, unit-tested,
+# or flashed by this audit. The attachment omits generated sdkconfig.h, ELF/map
+# build context and some project files, so local Codex review/build is mandatory.
+#
+# Scope: one-shot adjudication and stop-bleeding only. The production V2 durable
+# record/pair journal/status protocol is specified in the main audit report and
+# acceptance matrix; do not mix that migration into the first left-only flash.
+#
+diff --git a/MAKCM_ESP32s3_Device_Mouse_Left_IDF/components/makcm_core/include/ota_update_manager.h b/MAKCM_ESP32s3_Device_Mouse_Left_IDF/components/makcm_core/include/ota_update_manager.h
+index c1b8715..003519a 100644
+--- a/MAKCM_ESP32s3_Device_Mouse_Left_IDF/components/makcm_core/include/ota_update_manager.h
++++ b/MAKCM_ESP32s3_Device_Mouse_Left_IDF/components/makcm_core/include/ota_update_manager.h
+@@ -7,6 +7,7 @@
+ #include "OtaProtocol.h"
+ 
+ #include "esp_ota_ops.h"
++#include "esp_system.h"
+ #include "mbedtls/sha256.h"
+ #include "nvs.h"
+ 
+@@ -42,6 +43,19 @@ struct OtaUpdateConfig {
+ 
+ class OtaUpdateManager final {
+ public:
++    struct BootEvidence {
++        esp_reset_reason_t reset_reason = ESP_RST_UNKNOWN;
++        esp_err_t pre_state_error = ESP_OK;
++        esp_err_t mark_valid_error = ESP_OK;
++        esp_err_t post_state_error = ESP_OK;
++        esp_err_t last_ota_error = ESP_OK;
++        esp_err_t last_nvs_error = ESP_OK;
++        esp_ota_img_states_t pre_state = ESP_OTA_IMG_UNDEFINED;
++        esp_ota_img_states_t post_state = ESP_OTA_IMG_UNDEFINED;
++        uint8_t running_subtype = 0xFF;
++        uint8_t boot_subtype = 0xFF;
++        bool running_equals_boot = false;
++    };
+     OtaUpdateManager() = default;
+     ~OtaUpdateManager();
+     OtaUpdateManager(const OtaUpdateManager &) = delete;
+@@ -58,6 +72,8 @@ public:
+     bool maintenanceExclusive() const;
+     bool takeRestartRequest();
+     bool trustConfigured() const { return config_.trust.configured(); }
++    bool localBootValidated() const { return local_boot_validated_; }
++    const BootEvidence &bootEvidence() const { return boot_evidence_; }
+ 
+ private:
+     struct LocalRecord {
+@@ -118,6 +134,7 @@ private:
+     uint32_t last_activity_ms_ = 0;
+     uint32_t pending_confirm_started_ms_ = 0;
+     bool local_boot_validated_ = false;
++    BootEvidence boot_evidence_{};
+ };
+ 
+ } // namespace makcm::native
+diff --git a/MAKCM_ESP32s3_Device_Mouse_Left_IDF/components/makcm_core/ota_update_manager.cpp b/MAKCM_ESP32s3_Device_Mouse_Left_IDF/components/makcm_core/ota_update_manager.cpp
+index 66275e8..91902b6 100644
+--- a/MAKCM_ESP32s3_Device_Mouse_Left_IDF/components/makcm_core/ota_update_manager.cpp
++++ b/MAKCM_ESP32s3_Device_Mouse_Left_IDF/components/makcm_core/ota_update_manager.cpp
+@@ -61,15 +61,29 @@ bool OtaUpdateManager::begin(const OtaUpdateConfig &config, uint32_t now_ms) {
+     LocalRecord record{};
+     const bool have_record = loadRecord(record);
+     const esp_partition_t *running = esp_ota_get_running_partition();
++    const esp_partition_t *boot = esp_ota_get_boot_partition();
++    boot_evidence_.reset_reason = esp_reset_reason();
++    boot_evidence_.running_subtype = running == nullptr
++        ? 0xFF : static_cast<uint8_t>(running->subtype);
++    boot_evidence_.boot_subtype = boot == nullptr
++        ? 0xFF : static_cast<uint8_t>(boot->subtype);
++    boot_evidence_.running_equals_boot = running != nullptr && running == boot;
+     esp_ota_img_states_t image_state = ESP_OTA_IMG_UNDEFINED;
+-    const bool pending_verify = running != nullptr &&
+-        esp_ota_get_state_partition(running, &image_state) == ESP_OK &&
++    boot_evidence_.pre_state_error = running == nullptr
++        ? ESP_ERR_NOT_FOUND
++        : esp_ota_get_state_partition(running, &image_state);
++    boot_evidence_.pre_state = image_state;
++    const bool pending_verify =
++        boot_evidence_.pre_state_error == ESP_OK &&
+         image_state == ESP_OTA_IMG_PENDING_VERIFY;
+     if (pending_verify) {
+         local_boot_validated_ = false;
+         if (!have_record ||
++            record.state != static_cast<uint8_t>(
++                makcm::ota::State::ActivationPending) ||
+             record.target_generation != config_.current_generation ||
+-            record.transaction_id == 0) {
++            record.transaction_id == 0 || running == nullptr ||
++            record.partition_subtype != static_cast<uint8_t>(running->subtype)) {
+             // An untraceable pending image must never mark itself valid.
+             state_.store(makcm::ota::State::Fault);
+             transaction_id_ = have_record ? record.transaction_id : 0;
+@@ -94,6 +108,14 @@ bool OtaUpdateManager::begin(const OtaUpdateConfig &config, uint32_t now_ms) {
+         state_.store(makcm::ota::State::Fault);
+         transaction_id_ = record.transaction_id;
+         manifest_.generation = record.target_generation;
++    } else if (have_record &&
++               record.state == static_cast<uint8_t>(makcm::ota::State::Confirmed) &&
++               record.target_generation == config_.current_generation) {
++        // Keep the most recent completion evidence instead of clearing it on
++        // the first post-confirm reboot.
++        state_.store(makcm::ota::State::Confirmed);
++        transaction_id_ = record.transaction_id;
++        manifest_.generation = record.target_generation;
+     } else {
+         clearRecord();
+         state_.store(makcm::ota::State::Idle);
+@@ -310,7 +332,12 @@ bool OtaUpdateManager::acceptManifest(
+         reason = makcm::ota::NackReason::ManifestRejected;
+         return false;
+     }
+-    if (esp_ota_begin(update_partition_, manifest.image_size, &ota_handle_) != ESP_OK) {
++    boot_evidence_.last_ota_error =
++        esp_ota_begin(update_partition_, manifest.image_size, &ota_handle_);
++    if (boot_evidence_.last_ota_error != ESP_OK) {
++        ESP_LOGE(kTag, "esp_ota_begin failed: %s (%d)",
++                 esp_err_to_name(boot_evidence_.last_ota_error),
++                 static_cast<int>(boot_evidence_.last_ota_error));
+         reason = makcm::ota::NackReason::FlashWriteFailed;
+         return false;
+     }
+@@ -369,8 +396,13 @@ bool OtaUpdateManager::acceptData(const makcm::ota::Frame &request,
+         reason = makcm::ota::NackReason::ManifestRejected;
+         return false;
+     }
+-    if (esp_ota_write(ota_handle_, request.payload, request.length) != ESP_OK ||
++    boot_evidence_.last_ota_error =
++        esp_ota_write(ota_handle_, request.payload, request.length);
++    if (boot_evidence_.last_ota_error != ESP_OK ||
+         mbedtls_sha256_update(&image_hash_, request.payload, request.length) != 0) {
++        ESP_LOGE(kTag, "esp_ota_write/hash failed: %s (%d)",
++                 esp_err_to_name(boot_evidence_.last_ota_error),
++                 static_cast<int>(boot_evidence_.last_ota_error));
+         reason = makcm::ota::NackReason::FlashWriteFailed;
+         return false;
+     }
+@@ -402,13 +434,20 @@ bool OtaUpdateManager::prepare(uint32_t now_ms,
+         return false;
+     }
+     const esp_err_t end_result = esp_ota_end(ota_handle_);
++    boot_evidence_.last_ota_error = end_result;
+     ota_open_ = false;
+     ota_handle_ = 0;
+     esp_app_desc_t descriptor{};
+-    if (end_result != ESP_OK || update_partition_ == nullptr ||
+-        esp_ota_get_partition_description(update_partition_, &descriptor) != ESP_OK ||
++    const esp_err_t descriptor_result = update_partition_ == nullptr
++        ? ESP_ERR_NOT_FOUND
++        : esp_ota_get_partition_description(update_partition_, &descriptor);
++    if (end_result != ESP_OK || descriptor_result != ESP_OK ||
+         !exactField(config_.project_name, descriptor.project_name,
+                     sizeof(descriptor.project_name))) {
++        ESP_LOGE(kTag, "prepare verification failed end=%s (%d) desc=%s (%d)",
++                 esp_err_to_name(end_result), static_cast<int>(end_result),
++                 esp_err_to_name(descriptor_result),
++                 static_cast<int>(descriptor_result));
+         setState(makcm::ota::State::Fault, now_ms);
+         reason = makcm::ota::NackReason::ImageVerificationFailed;
+         return false;
+@@ -428,12 +467,23 @@ bool OtaUpdateManager::activate(uint32_t now_ms,
+     reason = makcm::ota::NackReason::RollbackUnavailable;
+     return false;
+ #else
+-    if (esp_ota_set_boot_partition(update_partition_) != ESP_OK) {
++    // Intent must be durable before changing the boot selection.
++    setState(makcm::ota::State::ActivationPending, now_ms);
++    if (!saveRecord()) {
+         reason = makcm::ota::NackReason::FlashWriteFailed;
+         return false;
+     }
+-    setState(makcm::ota::State::ActivationPending, now_ms);
+-    if (!saveRecord()) {
++    boot_evidence_.last_ota_error =
++        esp_ota_set_boot_partition(update_partition_);
++    if (boot_evidence_.last_ota_error != ESP_OK) {
++        ESP_LOGE(kTag, "esp_ota_set_boot_partition failed: %s (%d)",
++                 esp_err_to_name(boot_evidence_.last_ota_error),
++                 static_cast<int>(boot_evidence_.last_ota_error));
++        reason = makcm::ota::NackReason::FlashWriteFailed;
++        return false;
++    }
++    if (esp_ota_get_boot_partition() != update_partition_) {
++        boot_evidence_.last_ota_error = ESP_ERR_INVALID_STATE;
+         reason = makcm::ota::NackReason::FlashWriteFailed;
+         return false;
+     }
+@@ -445,7 +495,7 @@ bool OtaUpdateManager::activate(uint32_t now_ms,
+ bool OtaUpdateManager::confirm(uint32_t now_ms,
+                                makcm::ota::NackReason &reason) {
+     if (state_.load() != makcm::ota::State::PendingConfirm ||
+-        !validateLocalBoot(now_ms) ||
++        !local_boot_validated_ ||
+         !config_.pair_health_check(config_.context)) {
+         reason = makcm::ota::NackReason::CompatibilityRejected;
+         return false;
+@@ -455,7 +505,10 @@ bool OtaUpdateManager::confirm(uint32_t now_ms,
+     return false;
+ #else
+     setState(makcm::ota::State::Confirmed, now_ms);
+-    clearRecord();
++    if (!saveRecord()) {
++        reason = makcm::ota::NackReason::FlashWriteFailed;
++        return false;
++    }
+     // Confirmation ACK is emitted before the main loop consumes this flag.
+     // Reboot into a clean runtime so quiesced USB/UART gates are not left
+     // latched after the pair transaction has been durably confirmed.
+@@ -471,7 +524,38 @@ bool OtaUpdateManager::validateLocalBoot(uint32_t now_ms) {
+         return false;
+     }
+ #if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+-    if (esp_ota_mark_app_valid_cancel_rollback() != ESP_OK) return false;
++    const esp_partition_t *running = esp_ota_get_running_partition();
++    const esp_partition_t *boot = esp_ota_get_boot_partition();
++    if (running == nullptr || boot == nullptr || running != boot) return false;
++
++    esp_ota_img_states_t pre_state = ESP_OTA_IMG_UNDEFINED;
++    boot_evidence_.pre_state_error =
++        esp_ota_get_state_partition(running, &pre_state);
++    boot_evidence_.pre_state = pre_state;
++    if (boot_evidence_.pre_state_error != ESP_OK ||
++        pre_state != ESP_OTA_IMG_PENDING_VERIFY) return false;
++
++    boot_evidence_.mark_valid_error =
++        esp_ota_mark_app_valid_cancel_rollback();
++    if (boot_evidence_.mark_valid_error != ESP_OK) {
++        ESP_LOGE(kTag, "mark-valid failed: %s (%d)",
++                 esp_err_to_name(boot_evidence_.mark_valid_error),
++                 static_cast<int>(boot_evidence_.mark_valid_error));
++        return false;
++    }
++
++    esp_ota_img_states_t post_state = ESP_OTA_IMG_UNDEFINED;
++    boot_evidence_.post_state_error =
++        esp_ota_get_state_partition(running, &post_state);
++    boot_evidence_.post_state = post_state;
++    if (boot_evidence_.post_state_error != ESP_OK ||
++        post_state != ESP_OTA_IMG_VALID) {
++        ESP_LOGE(kTag, "mark-valid readback failed: %s (%d), state=%d",
++                 esp_err_to_name(boot_evidence_.post_state_error),
++                 static_cast<int>(boot_evidence_.post_state_error),
++                 static_cast<int>(post_state));
++        return false;
++    }
+     local_boot_validated_ = true;
+     last_activity_ms_ = now_ms;
+     return true;
+@@ -486,25 +570,21 @@ bool OtaUpdateManager::abort(bool request_restart,
+ #if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+         (void)reason;
+         restart_requested_.store(false, std::memory_order_release);
+-        // The rollback boots the previous application immediately.  Remove
+-        // the ActivationPending record first; otherwise that valid old image
+-        // sees stale evidence on boot, enters Fault, and may try to invalidate
+-        // itself on its own confirmation timeout.
+-        clearRecord();
++        // Never clear evidence before rollback completion. After local
++        // validation, V1 has no trustworthy recorded previous slot, so refuse
++        // rather than guessing with esp_ota_get_next_update_partition().
+         if (local_boot_validated_) {
+-            const esp_partition_t *previous =
+-                esp_ota_get_next_update_partition(nullptr);
+-            if (previous == nullptr ||
+-                esp_ota_set_boot_partition(previous) != ESP_OK) {
+-                reason = makcm::ota::NackReason::FlashWriteFailed;
+-                return false;
+-            }
+-            setState(makcm::ota::State::Idle, last_activity_ms_);
+-            restart_requested_.store(true, std::memory_order_release);
+-            return true;
++            reason = makcm::ota::NackReason::RollbackUnavailable;
++            return false;
+         }
+-        esp_ota_mark_app_invalid_rollback_and_reboot();
+-        return true;
++        boot_evidence_.last_ota_error =
++            esp_ota_mark_app_invalid_rollback_and_reboot();
++        // Success normally does not return.
++        ESP_LOGE(kTag, "rollback returned: %s (%d)",
++                 esp_err_to_name(boot_evidence_.last_ota_error),
++                 static_cast<int>(boot_evidence_.last_ota_error));
++        reason = makcm::ota::NackReason::FlashWriteFailed;
++        return false;
+ #else
+         reason = makcm::ota::NackReason::RollbackUnavailable;
+         return false;
+@@ -520,7 +600,14 @@ bool OtaUpdateManager::abort(bool request_restart,
+ }
+ 
+ void OtaUpdateManager::resetDownload() {
+-    if (ota_open_) esp_ota_abort(ota_handle_);
++    if (ota_open_) {
++        boot_evidence_.last_ota_error = esp_ota_abort(ota_handle_);
++        if (boot_evidence_.last_ota_error != ESP_OK) {
++            ESP_LOGE(kTag, "esp_ota_abort failed: %s (%d)",
++                     esp_err_to_name(boot_evidence_.last_ota_error),
++                     static_cast<int>(boot_evidence_.last_ota_error));
++        }
++    }
+     ota_open_ = false;
+     ota_handle_ = 0;
+     update_partition_ = nullptr;
+@@ -551,11 +638,10 @@ void OtaUpdateManager::poll(uint32_t now_ms) {
+                 value == makcm::ota::State::Fault) &&
+                !local_boot_validated_ &&
+                now_ms - pending_confirm_started_ms_ > config_.confirm_timeout_ms) {
+-#if CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+-        esp_ota_mark_app_invalid_rollback_and_reboot();
+-#else
++        // A missing host/pair confirmation must not autonomously change
++        // the image lifecycle. Preserve evidence and wait for explicit action.
+         setState(makcm::ota::State::Fault, now_ms);
+-#endif
++        (void)saveRecord();
+     }
+ }
+ 
+@@ -576,8 +662,11 @@ bool OtaUpdateManager::saveRecord() {
+     record.transaction_id = transaction_id_;
+     record.target_generation = manifest_.generation;
+     record.crc = recordCrc(record);
+-    return nvs_set_blob(nvs_, kNvsRecord, &record, sizeof(record)) == ESP_OK &&
+-           nvs_commit(nvs_) == ESP_OK;
++    boot_evidence_.last_nvs_error =
++        nvs_set_blob(nvs_, kNvsRecord, &record, sizeof(record));
++    if (boot_evidence_.last_nvs_error != ESP_OK) return false;
++    boot_evidence_.last_nvs_error = nvs_commit(nvs_);
++    return boot_evidence_.last_nvs_error == ESP_OK;
+ }
+ 
+ bool OtaUpdateManager::loadRecord(LocalRecord &record) {
+@@ -593,8 +682,20 @@ bool OtaUpdateManager::loadRecord(LocalRecord &record) {
+ 
+ void OtaUpdateManager::clearRecord() {
+     if (nvs_ == 0) return;
+-    nvs_erase_key(nvs_, kNvsRecord);
+-    nvs_commit(nvs_);
++    boot_evidence_.last_nvs_error = nvs_erase_key(nvs_, kNvsRecord);
++    if (boot_evidence_.last_nvs_error != ESP_OK &&
++        boot_evidence_.last_nvs_error != ESP_ERR_NVS_NOT_FOUND) {
++        ESP_LOGE(kTag, "nvs_erase_key failed: %s (%d)",
++                 esp_err_to_name(boot_evidence_.last_nvs_error),
++                 static_cast<int>(boot_evidence_.last_nvs_error));
++        return;
++    }
++    boot_evidence_.last_nvs_error = nvs_commit(nvs_);
++    if (boot_evidence_.last_nvs_error != ESP_OK) {
++        ESP_LOGE(kTag, "nvs_commit(clear) failed: %s (%d)",
++                 esp_err_to_name(boot_evidence_.last_nvs_error),
++                 static_cast<int>(boot_evidence_.last_nvs_error));
++    }
+ }
+ 
+ } // namespace makcm::native
+diff --git a/MAKCM_ESP32s3_Device_Mouse_Left_IDF/main/app_main.cpp b/MAKCM_ESP32s3_Device_Mouse_Left_IDF/main/app_main.cpp
+index 4d8777c..22a55f6 100644
+--- a/MAKCM_ESP32s3_Device_Mouse_Left_IDF/main/app_main.cpp
++++ b/MAKCM_ESP32s3_Device_Mouse_Left_IDF/main/app_main.cpp
+@@ -60,6 +60,8 @@ std::atomic<uint8_t> right_ota_state{
+ std::atomic<uint32_t> right_link_reset_at_ms{0};
+ makcm::ota::Frame pending_right_request{};
+ makcm::ota::Frame ota_control_response{};
++// Control-plane scratch must not live on app_main's stack.
++char stick_status_response[makcm::native::kStickStatusCapacity]{};
+ bool pending_right_request_valid = false;
+ uint32_t pending_right_request_started_ms = 0;
+ uint32_t right_maintenance_transaction = 0;
+@@ -881,6 +883,7 @@ bool otaPairHealth(void *) {
+            right_logically_idle &&
+            (flags & makcm::ota::kStatusPeerCompatible) != 0 &&
+            (flags & makcm::ota::kStatusHealthPassed) != 0 &&
++           (flags & makcm::ota::kStatusLocalBootValidated) != 0 &&
+            bridge.running();
+ }
+ 
+@@ -1014,15 +1017,8 @@ void secondaryOtaFrame(void *, const makcm::ota::Frame &frame) {
+         if (!ota_ready.load(std::memory_order_acquire)) {
+             sendOtaNack(frame, makcm::ota::NackReason::RollbackUnavailable);
+         } else {
+-            // PendingConfirm ABORT can reboot inside the OTA manager before a
+-            // response reaches observeLocalOtaResponse().  Clear the matching
+-            // pair transaction first so the previous slot does not boot into
+-            // fail-closed maintenance on stale LeftActivated evidence.
+-            if (frame.command == makcm::ota::Command::Abort &&
+-                pair_record_valid &&
+-                pair_record.transaction_id == frame.transaction_id) {
+-                clearPairStore();
+-            }
++            // Do not erase pair evidence before rollback has durably
++            // completed. The OTA manager/old slot must write the rollback fact.
+             ota_manager.handle(frame, ota_control_response, nowMs());
+             observeLocalOtaResponse(frame, ota_control_response);
+             secondary.sendOtaFrame(ota_control_response);
+@@ -1401,23 +1397,9 @@ extern "C" void app_main(void) {
+                          &secondaryButton, &secondaryText,
+                          &secondaryOtaFrame)) {
+         ESP_LOGE(kTag, "secondary UART startup failed");
+-        // A locally validated pending image must not remain selected without
+-        // its trusted recovery UART. Reuse the updater's durable ABORT path
+-        // to select the previous valid slot and clear both transaction stores.
+-        if (ota_manager.state() == makcm::ota::State::PendingConfirm &&
+-            ota_mutex != nullptr &&
+-            xSemaphoreTake(ota_mutex, pdMS_TO_TICKS(250)) == pdTRUE) {
+-            clearPairStore();
+-            makcm::ota::Frame request{};
+-            makcm::ota::Frame response{};
+-            request.target = makcm::ota::Target::Left;
+-            request.command = makcm::ota::Command::Abort;
+-            request.transaction_id = ota_manager.transactionId();
+-            ota_manager.handle(request, response, nowMs());
+-            const bool restart = ota_manager.takeRestartRequest();
+-            xSemaphoreGive(ota_mutex);
+-            if (restart) esp_restart();
+-        }
++        // A data-plane/control-UART startup failure must not undo a locally
++        // VALID image. Remain fail-closed and preserve transaction evidence.
++        ota_quiesced.store(true, std::memory_order_release);
+         return;
+     }
+     if (ota_quiesced.load(std::memory_order_acquire))
+@@ -1503,9 +1485,9 @@ extern "C" void app_main(void) {
+                 esp_restart();
+             }
+         }
+-        char response[makcm::native::kStickStatusCapacity]{};
+-        if (router.takeStickResponse(response, sizeof(response)))
+-            secondary.sendText(response);
++        if (router.takeStickResponse(stick_status_response,
++                                     sizeof(stick_status_response)))
++            secondary.sendText(stick_status_response);
+         const uint64_t now_ms =
+             static_cast<uint64_t>(esp_timer_get_time() / 1000ULL);
+         if (router.pollStickWatchdog(now_ms) &&
+diff --git a/MAKCM_ESP32s3_Device_Mouse_Left_IDF/sdkconfig.defaults b/MAKCM_ESP32s3_Device_Mouse_Left_IDF/sdkconfig.defaults
+index 40b058b..9bdd3bd 100644
+--- a/MAKCM_ESP32s3_Device_Mouse_Left_IDF/sdkconfig.defaults
++++ b/MAKCM_ESP32s3_Device_Mouse_Left_IDF/sdkconfig.defaults
+@@ -13,6 +13,9 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
+ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+ CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
++# Temporary one-shot diagnostic headroom. The release value must be based
++# on the exact ELF/.su/map and a reviewed call-chain margin.
++CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288
+ CONFIG_COMPILER_OPTIMIZATION_PERF=y
+ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+ # UART0 (GPIO43/44) is the CH343 control protocol. Console output on that
+diff --git a/MAKCM_ESP32s3_HID_Mouse_Right/include/OtaReceiver.h b/MAKCM_ESP32s3_HID_Mouse_Right/include/OtaReceiver.h
+index 6f054a8..39ad04a 100644
+--- a/MAKCM_ESP32s3_HID_Mouse_Right/include/OtaReceiver.h
++++ b/MAKCM_ESP32s3_HID_Mouse_Right/include/OtaReceiver.h
+@@ -26,7 +26,8 @@ public:
+     static constexpr size_t kMaxFrameSize = makcm::ota::kMaxWireSize;
+     static constexpr uint32_t kIdleTimeoutMs = 10000;
+     static constexpr uint32_t kConfirmTimeoutMs = 120000;
+-    using HealthCheck = bool (*)(void *context);
++    using LocalHealthCheck = bool (*)(void *context);
++    using PairHealthCheck = bool (*)(void *context);
+ 
+     enum class State : uint8_t {
+         Idle = 0,
+@@ -59,11 +60,11 @@ public:
+         Unsupported = 18,
+     };
+ 
+-    // The manifest is little-endian and is followed by signature_length
+-    // bytes.  The signature is intentionally required even though this
+-    // build has no verifier; verifySignature() therefore fails closed.
++    // The manifest is little-endian and carries a required P-256
++    // signature verified against the compiled trust anchor.
+     void begin(HardwareSerial *serial, SemaphoreHandle_t *mutex,
+-               HealthCheck healthCheck = nullptr,
++               LocalHealthCheck localHealthCheck = nullptr,
++               PairHealthCheck pairHealthCheck = nullptr,
+                void *healthContext = nullptr);
+     bool enterMaintenance(uint32_t transactionId = 0,
+                           uint32_t peerGeneration = 0);
+@@ -74,7 +75,11 @@ public:
+     State state() const { return state_; }
+     bool peerCompatible() const;
+     bool healthPassed() const {
+-        return healthCheck_ != nullptr && healthCheck_(healthContext_);
++        return pairHealthCheck_ != nullptr && pairHealthCheck_(healthContext_);
++    }
++    bool localHealthPassed() const {
++        return localHealthCheck_ != nullptr &&
++               localHealthCheck_(healthContext_);
+     }
+     bool localBootValidated() const { return localBootValidated_; }
+ 
+@@ -82,12 +87,14 @@ private:
+     Preferences *prefs_ = nullptr;
+     HardwareSerial *serial_ = nullptr;
+     SemaphoreHandle_t *serialMutex_ = nullptr;
+-    HealthCheck healthCheck_ = nullptr;
++    LocalHealthCheck localHealthCheck_ = nullptr;
++    PairHealthCheck pairHealthCheck_ = nullptr;
+     void *healthContext_ = nullptr;
+     bool maintenanceActive_ = false;
+     State state_ = State::Idle;
+     uint32_t transactionId_ = 0;
+     uint32_t replyTransactionId_ = 1;
++    uint32_t replySequence_ = 0;
+     uint32_t bootstrapTransactionId_ = 0;
+     uint32_t targetGeneration_ = 0;
+     uint32_t peerGeneration_ = 0;
+@@ -103,6 +110,9 @@ private:
+     uint32_t lastSequence_ = 0;
+     bool haveSequence_ = false;
+     bool localBootValidated_ = false;
++    esp_err_t lastOtaError_ = ESP_OK;
++    esp_err_t lastStateQueryError_ = ESP_OK;
++    esp_ota_img_states_t lastImageState_ = ESP_OTA_IMG_UNDEFINED;
+     esp_ota_handle_t otaHandle_ = 0;
+     const esp_partition_t *targetPartition_ = nullptr;
+     void resetParser();
+diff --git a/MAKCM_ESP32s3_HID_Mouse_Right/src/esp_tasks.cpp b/MAKCM_ESP32s3_HID_Mouse_Right/src/esp_tasks.cpp
+index 5e1d285..675300c 100644
+--- a/MAKCM_ESP32s3_HID_Mouse_Right/src/esp_tasks.cpp
++++ b/MAKCM_ESP32s3_HID_Mouse_Right/src/esp_tasks.cpp
+@@ -37,6 +37,14 @@ void EspUsbHost::begin(void)
+     otaReceiver.begin(
+         &Serial1, &serial1Mutex,
+         [](void *context) -> bool {
++            // Boot-local prerequisites only. Controller enumeration and USB
++            // Host/client readiness must not control bootloader rollback.
++            auto *host = static_cast<EspUsbHost *>(context);
++            return host != nullptr && host->serial1Mutex != nullptr &&
++                   host->cleanupComplete != nullptr;
++        },
++        [](void *context) -> bool {
++            // Pair/data-plane health remains strict and is reported separately.
+             auto *host = static_cast<EspUsbHost *>(context);
+             return host != nullptr && host->hostInstallStatus == ESP_OK &&
+                    host->clientRegisterStatus == ESP_OK &&
+diff --git a/MAKCM_ESP32s3_HID_Mouse_Right/src/ota_receiver.cpp b/MAKCM_ESP32s3_HID_Mouse_Right/src/ota_receiver.cpp
+index 3b5bfb5..319d7ec 100644
+--- a/MAKCM_ESP32s3_HID_Mouse_Right/src/ota_receiver.cpp
++++ b/MAKCM_ESP32s3_HID_Mouse_Right/src/ota_receiver.cpp
+@@ -152,10 +152,13 @@ bool verifyP256(const uint8_t digest[32], const uint8_t signature[64]) {
+ OtaReceiver otaReceiver;
+ 
+ void OtaReceiver::begin(HardwareSerial *serial, SemaphoreHandle_t *mutex,
+-                        HealthCheck healthCheck, void *healthContext) {
++                        LocalHealthCheck localHealthCheck,
++                        PairHealthCheck pairHealthCheck,
++                        void *healthContext) {
+     serial_ = serial;
+     serialMutex_ = mutex;
+-    healthCheck_ = healthCheck;
++    localHealthCheck_ = localHealthCheck;
++    pairHealthCheck_ = pairHealthCheck;
+     healthContext_ = healthContext;
+     maintenanceActive_ = false;
+     decoder_.reset();
+@@ -229,7 +232,7 @@ void OtaReceiver::sendResponse(makcm::ota::Command command, Error error,
+     // host resume after a dropped or duplicate chunk.  The original command
+     // offset is retained only in the status last_command field.
+     responseFrame_.offset = bytesWritten_;
+-    responseFrame_.sequence = lastSequence_;
++    responseFrame_.sequence = replySequence_;
+     StatusPayload status;
+     status.state = toCommonState(state_, maintenanceActive_);
+     status.last_command = command;
+@@ -259,6 +262,7 @@ void OtaReceiver::sendStatus() {
+     // Leaving the zero-initialized header here made a fully Prepared image
+     // fail the host's ambiguity check even though the payload was correct.
+     responseFrame_.offset = bytesWritten_;
++    responseFrame_.sequence = replySequence_;
+     StatusPayload status;
+     status.state = toCommonState(state_, maintenanceActive_);
+     status.last_command = Command::Status;
+@@ -574,9 +578,23 @@ bool OtaReceiver::handleConfirm(Error &error) {
+ 
+ bool OtaReceiver::validateLocalBoot() {
+     if (localBootValidated_) return true;
+-    if (state_ != State::AwaitConfirm || !healthPassed()) return false;
++    if (state_ != State::AwaitConfirm || !localHealthPassed()) return false;
+ #if defined(CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE) && CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+-    if (esp_ota_mark_app_valid_cancel_rollback() != ESP_OK) return false;
++    const esp_partition_t *running = esp_ota_get_running_partition();
++    const esp_partition_t *boot = esp_ota_get_boot_partition();
++    if (running == nullptr || boot == nullptr || running != boot) return false;
++    esp_ota_img_states_t preState = ESP_OTA_IMG_UNDEFINED;
++    lastStateQueryError_ = esp_ota_get_state_partition(running, &preState);
++    lastImageState_ = preState;
++    if (lastStateQueryError_ != ESP_OK ||
++        preState != ESP_OTA_IMG_PENDING_VERIFY) return false;
++    lastOtaError_ = esp_ota_mark_app_valid_cancel_rollback();
++    if (lastOtaError_ != ESP_OK) return false;
++    esp_ota_img_states_t postState = ESP_OTA_IMG_UNDEFINED;
++    lastStateQueryError_ = esp_ota_get_state_partition(running, &postState);
++    lastImageState_ = postState;
++    if (lastStateQueryError_ != ESP_OK || postState != ESP_OTA_IMG_VALID)
++        return false;
+     localBootValidated_ = true;
+     lastActivityMs_ = millis();
+     return true;
+@@ -604,6 +622,7 @@ void OtaReceiver::abortUpdate(Error error, bool clearPersistent) {
+ void OtaReceiver::handleFrame(const makcm::ota::Frame &frame) {
+     using namespace makcm::ota;
+     replyTransactionId_ = frame.transaction_id;
++    replySequence_ = frame.sequence;
+     if (frame.target != Target::Right) {
+         sendResponse(frame.command, BadTarget, frame.offset);
+         return;
+@@ -772,12 +791,11 @@ void OtaReceiver::tick() {
+     }
+     if (state_ == State::AwaitConfirm && !localBootValidated_ &&
+         static_cast<uint32_t>(millis() - lastActivityMs_) > kConfirmTimeoutMs) {
+-#if defined(CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE) && CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+-        esp_ota_mark_app_invalid_rollback_and_reboot();
+-#else
++        // Missing host/pair confirmation is not permission to kill a
++        // locally bootable image. Preserve evidence for explicit recovery.
+         state_ = State::Failed;
+-        lastError_ = RollbackUnavailable;
+-#endif
++        lastError_ = Timeout;
++        persistState();
+         return;
+     }
+     if (!maintenanceActive_) return;
+diff --git a/tools/makcm_ota_tool.py b/tools/makcm_ota_tool.py
+index 3c9ed44..ba2b8a4 100644
+--- a/tools/makcm_ota_tool.py
++++ b/tools/makcm_ota_tool.py
+@@ -95,6 +95,7 @@ FLAG_FINAL = 0x04
+ # peer health from a successful UART ACK; the receiver has to assert this bit.
+ STATUS_PEER_COMPATIBLE = 0x0010
+ STATUS_HEALTH_PASSED = 0x0040
++STATUS_LOCAL_BOOT_VALIDATED = 0x0080
+ 
+ # State values from ``OtaProtocol.h``.  The right receiver reports
+ # ``STATE_MAINTENANCE`` while its internal updater is logically idle but the
+@@ -982,7 +983,9 @@ class OtaClient:
+         self._sequence = 0
+         self._decoder = FrameDecoder()
+ 
+-    def _read_response(self) -> Frame:
++    def _read_response(
++        self, *, expected_sequence: int, expected_command: int
++    ) -> Frame:
+         deadline = time.monotonic() + self.timeout
+         while time.monotonic() < deadline:
+             chunk = self.transport.read(256)
+@@ -993,6 +996,16 @@ class OtaClient:
+                     continue
+                 if frame.target not in (self.target, TARGET_HOST):
+                     continue
++                if frame.sequence != expected_sequence:
++                    continue
++                if frame.command not in (CMD_ACK, CMD_NACK, CMD_STATUS_RESPONSE):
++                    continue
++                try:
++                    status = decode_status_payload(frame.payload)
++                except OtaToolError:
++                    continue
++                if status.last_command != expected_command:
++                    continue
+                 return frame
+         raise OtaToolError("timed out waiting for OTA response")
+ 
+@@ -1027,7 +1040,10 @@ class OtaClient:
+                     raise OtaToolError(
+                         f"short serial write {written}/{len(wire)} bytes"
+                     )
+-                frame = self._read_response()
++                frame = self._read_response(
++                    expected_sequence=sequence,
++                    expected_command=command,
++                )
+             except (OtaToolError, OSError):
+                 if attempt >= retries:
+                     raise
+@@ -1220,6 +1236,12 @@ class OtaClient:
+                     last_error = (
+                         "missing peer confirmation: receiver health check not passed"
+                     )
++                elif not (
++                    status.status_flags & STATUS_LOCAL_BOOT_VALIDATED
++                ):
++                    last_error = (
++                        "missing peer confirmation: local boot not validated"
++                    )
+                 else:
+                     return status
+             except OtaToolError as exc:
+@@ -1261,6 +1283,12 @@ class OtaClient:
+                     last_error = "missing confirmed peer health: incompatible peer"
+                 elif (status.status_flags & STATUS_HEALTH_PASSED) == 0:
+                     last_error = "missing confirmed peer health: health check not passed"
++                elif (
++                    status.status_flags & STATUS_LOCAL_BOOT_VALIDATED
++                ) == 0:
++                    last_error = (
++                        "missing confirmed peer health: local boot not validated"
++                    )
+                 else:
+                     return status
+             except OtaToolError as exc:

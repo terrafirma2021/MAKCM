@@ -1,0 +1,46 @@
+{
+  "schema": "makcm.go1-usb1-g08-census.v1",
+  "captured_utc": "2026-08-05T23:08:36Z",
+  "topology_note": "USB1 is the permanent Windows pass-through outlet (left Device). USB2 is Linux CH343. Do not ask to replug USB1 for G-08.",
+  "misconception_corrected": "Earlier BLOCKED assumed missing cable / missing 4131:3519. 4131 is only present when that controller is attached on USB3 and proxied; current live persona is Razer mouse among other HID devices.",
+  "left_board_status_at_capture": {
+    "active_generation": 5,
+    "state": "Idle",
+    "maintenance_exclusive": false,
+    "source": "left_status_20260805_230837.json"
+  },
+  "captures": [
+    {
+      "file": "usb1_razer_1532_007b_20260805_230836.json",
+      "vid_pid": "1532:007b",
+      "hub_port": 3,
+      "interfaces": "HID-only",
+      "g08_static_pass": true
+    },
+    {
+      "file": "usb1_0001_0201_20260805_230836.json",
+      "vid_pid": "0001:0201",
+      "hub_port": 3,
+      "g08_static_pass": true
+    },
+    {
+      "file": "usb1_373b_1278_20260805_230836.json",
+      "vid_pid": "373b:1278",
+      "hub_port": 2,
+      "g08_static_pass": true
+    },
+    {
+      "file": "usb1_320f_5088_20260805_230836.json",
+      "vid_pid": "320f:5088",
+      "hub_port": 4,
+      "g08_static_pass": true
+    }
+  ],
+  "maintenance_like_interfaces_any": [],
+  "g08_static_pass": true,
+  "build_side_support": {
+    "CONFIG_TINYUSB_CDC_ENABLED": false,
+    "CONFIG_TINYUSB_MSC_ENABLED": false,
+    "CONFIG_TINYUSB_DFU_MODE_NONE": true
+  }
+}

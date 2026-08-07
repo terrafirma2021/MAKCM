@@ -1,0 +1,333 @@
+{
+  "failures": [],
+  "pass": true,
+  "pid": "3519",
+  "raw_mouse": {
+    "device_info_errors": [],
+    "errors": [],
+    "gaps_over_20ms": 82,
+    "gaps_over_50ms": 58,
+    "max_target_gap_ms": 1060.032,
+    "non_target_events": 0,
+    "raw_total": 561,
+    "samples": [
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": -2,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035721.01
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": -17,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035734.988
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": -6,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035754.873
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 3,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035755.905
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 2,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035772.903
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 29,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035784.985
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 22,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035802.083
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 46,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035802.959
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 5,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035814.973
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 27,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035832.991
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 27,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035844.976
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 11,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035846.101
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 2,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035862.945
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 14,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035874.919
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 5,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84035941.108
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 0,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036665.078
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 0,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036683.116
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": -20,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036695.083
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": -50,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036709.915
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": -71,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036710.867
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": -5,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036725.001
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": -62,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036739.928
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": -56,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036754.897
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": -20,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036755.911
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": -1,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036772.887
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": -8,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036784.896
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 6,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036802.945
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 10,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036803.826
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 1,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036814.968
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 7,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036834.941
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 4,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036835.867
+      },
+      {
+        "button_data": 0,
+        "button_flags": 0,
+        "dx": 0,
+        "dy": 0,
+        "flags": 0,
+        "path": "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}",
+        "t_ms": 84036854.917
+      }
+    ],
+    "target_button_events": 0,
+    "target_dx": -3664,
+    "target_dy": 0,
+    "target_events": 561,
+    "target_paths": {
+      "\\\\?\\HID#VID_4131&PID_3519&MI_03#7&efc84c5&0&0000#{378de44c-56ef-11d1-bc8c-00a0c91405dd}": 561
+    },
+    "target_wheel": 0
+  },
+  "seconds": 30.0,
+  "target_pattern": "VID_4131&PID_3519",
+  "vid": "4131",
+  "xinput": {
+    "errors": [],
+    "last": {
+      "buttons": 0,
+      "left_trigger": 255,
+      "lx": 896,
+      "ly": 16256,
+      "packet": 372443,
+      "right_trigger": 0,
+      "rx": 2944,
+      "ry": 640
+    },
+    "max_packet_change_gap_ms": 16.745,
+    "packet_changes": 1974,
+    "polls": 1975,
+    "success": 1975,
+    "user": 0
+  }
+}

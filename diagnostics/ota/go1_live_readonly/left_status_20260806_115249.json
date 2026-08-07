@@ -1,0 +1,23 @@
+{
+  "schema": "makcm.go1-readonly-status.v1",
+  "captured_utc": "2026-08-06T11:52:50.526691+00:00",
+  "host": "192.168.137.2",
+  "port": "/dev/ttyACM0",
+  "flash_write": false,
+  "windows_com_download": false,
+  "exit_code": 0,
+  "stdout": "{\"mode\": \"readonly_status\", \"writes\": false, \"port\": \"/dev/ttyACM0\", \"hello_state\": 0, \"active_generation\": 16, \"target_generation\": 0, \"status_flags\": 204, \"maintenance_exclusive\": false, \"reason\": 0, \"v2_error\": \"OtaToolError: OTA status payload must be exactly 24 bytes\"}\n",
+  "stderr": "",
+  "status": {
+    "mode": "readonly_status",
+    "writes": false,
+    "port": "/dev/ttyACM0",
+    "hello_state": 0,
+    "active_generation": 16,
+    "target_generation": 0,
+    "status_flags": 204,
+    "maintenance_exclusive": false,
+    "reason": 0,
+    "v2_error": "OtaToolError: OTA status payload must be exactly 24 bytes"
+  }
+}

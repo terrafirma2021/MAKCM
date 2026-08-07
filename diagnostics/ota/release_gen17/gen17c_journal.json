@@ -1,0 +1,58 @@
+{
+  "boards": {
+    "left": {},
+    "right": {}
+  },
+  "created_at": "2026-08-06T17:04:48.651+00:00",
+  "events": [
+    {
+      "at": "2026-08-06T17:04:48.651+00:00",
+      "event": "journal_created"
+    }
+  ],
+  "left": {
+    "chunk_size": 4096,
+    "generation": 17,
+    "image_sha256": "cdc51ea7aece5e2af874964e3ca82a2f6d7bb25c89132d83ef2c578687f0983b",
+    "image_size": 469504,
+    "manifest_sha256": "77cbec67c2f2a45ed28a5e72859b1c9dbfde2950a80942ff371a53b48a9116b9",
+    "max_peer_generation": 17,
+    "min_peer_generation": 16,
+    "package_sha256": "4c264a62640fcc6c5a2e2126243bdcb27eb6f791687475a1bd8a110de4d37d5f",
+    "path": "/home/li/.local/share/makcm-ota/gen17-release/gen17c_journal.tx407391433.packages/left-4c264a62640fcc6c5a2e2126243bdcb27eb6f791687475a1bd8a110de4d37d5f.mkota",
+    "role": "left",
+    "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd"
+  },
+  "phase": "new",
+  "port": "/dev/ttyACM0",
+  "record_crc32": "da50a8de",
+  "record_seq": 1,
+  "right": {
+    "chunk_size": 4096,
+    "generation": 17,
+    "image_sha256": "e4c98c4fa4c448e9d53cc5aaaea8774e8097b6dad586f2d0d584609fc0e4f58c",
+    "image_size": 482544,
+    "manifest_sha256": "c385ad287f58ed175e751ffbcdf1911b66d170aa4e7f98db5ad8c6579d59fac2",
+    "max_peer_generation": 17,
+    "min_peer_generation": 16,
+    "package_sha256": "044f20cec60e74f24a0b34aabfe95fa14b08d53d2b16614f1f904bac72891929",
+    "path": "/home/li/.local/share/makcm-ota/gen17-release/gen17c_journal.tx407391433.packages/right-044f20cec60e74f24a0b34aabfe95fa14b08d53d2b16614f1f904bac72891929.mkota",
+    "role": "right",
+    "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd"
+  },
+  "runtime_scope": "system",
+  "runtime_unit": null,
+  "runtime_was_active": false,
+  "schema": "makcm.pair-auto-update.v2",
+  "target_generation": 17,
+  "transaction_id": 407391433,
+  "updated_at": "2026-08-06T17:04:48.651+00:00",
+  "usb_identity": {
+    "bus_path": "1-7",
+    "pid": "55d3",
+    "port": "/dev/ttyACM0",
+    "serial": "5ACC041332",
+    "tty": "ttyACM0",
+    "vid": "1a86"
+  }
+}

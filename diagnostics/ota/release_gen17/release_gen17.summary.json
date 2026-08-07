@@ -1,0 +1,23 @@
+{
+  "generation": 17,
+  "min_peer_generation": 16,
+  "max_peer_generation": 17,
+  "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd",
+  "remote_dir": "/home/li/.local/share/makcm-ota/gen17-release",
+  "boards": {
+    "left": {
+      "image_sha256": "d87f3711cbb90bac1fbabc1bae72517313ae2b519b227b067c0f9a41c31646c3",
+      "image_bytes": 483072,
+      "package_sha256": "6e536523fa2dc477f2c018426966de2fd0ee857bdb812904425d7f93da3200dd",
+      "package_bytes": 483264,
+      "remote_package": "/home/li/.local/share/makcm-ota/gen17-release/left-gen17.mkota"
+    },
+    "right": {
+      "image_sha256": "7770645ec6af164c0e06b1666574d479c9cf3f0ac9d91deaaafb850c01e41e43",
+      "image_bytes": 482544,
+      "package_sha256": "6281fcae00b09ec3e1129b1b8b29d0ca33110509fbfb6805cb3b1ac9c815fa8f",
+      "package_bytes": 482736,
+      "remote_package": "/home/li/.local/share/makcm-ota/gen17-release/right-gen17.mkota"
+    }
+  }
+}

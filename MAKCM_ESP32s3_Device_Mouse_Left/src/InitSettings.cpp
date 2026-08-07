@@ -2,7 +2,22 @@
 #include <ArduinoJson.h>
 
 DeviceInfo device_info;
-DescriptorDevice descriptor_device;
+// Safe startup identity used only until the right MCU supplies the physical
+// device profile.  USB is not started from this value alone: InitUSB() still
+// requires a complete passthrough profile, which then overwrites every field.
+// Keep the legacy/default mouse identity consistent with the Compx 8K dongle.
+DescriptorDevice descriptor_device = {
+    18,     // bLength
+    1,      // bDescriptorType (device)
+    0x0200, // bcdUSB
+    0, 0, 0,
+    64,     // bMaxPacketSize0
+    0x373B, // idVendor
+    0x1278, // idProduct
+    0x0100, // bcdDevice
+    0, 0, 0,
+    1       // bNumConfigurations
+};
 usb_endpoint_descriptor_t endpoint_descriptors[MAX_ENDPOINT_DESCRIPTORS];
 uint8_t endpointCounter;
 usb_interface_descriptor_t interface_descriptors[MAX_INTERFACE_DESCRIPTORS];

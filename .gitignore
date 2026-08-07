@@ -1,0 +1,25 @@
+# Machine-local production OTA trust material.  The private key is stored
+# outside this repository; keep the compiled public trust anchor local too so
+# an accidental commit cannot silently change the production trust root.
+common/ota_trust_anchor.local.inc
+
+
+# Local toolchains and build output -- regenerated, never reviewed.
+.tools/
+.pio/
+__pycache__/
+merged_firmware/
+MAKCM_ESP32s3_Device_Mouse_Left_IDF/build/
+MAKCM_ESP32s3_Device_Mouse_Left_IDF/managed_components/
+
+# Bulky raw diagnostic captures (USB installs, wire traces, freeze snapshots).
+diagnostics/ds02_install/
+diagnostics/ds02_4131/
+diagnostics/ds03_4131/
+diagnostics/wire_trace_*/
+diagnostics/ota/go1_freeze_20260806/
+diagnostics/right_boot_readback_20260804/
+*.zip
+
+# Personal scratch notes.
+Text File.txt

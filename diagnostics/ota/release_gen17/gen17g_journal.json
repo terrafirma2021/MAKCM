@@ -1,0 +1,58 @@
+{
+  "boards": {
+    "left": {},
+    "right": {}
+  },
+  "created_at": "2026-08-06T19:13:08.044+00:00",
+  "events": [
+    {
+      "at": "2026-08-06T19:13:08.044+00:00",
+      "event": "journal_created"
+    }
+  ],
+  "left": {
+    "chunk_size": 4096,
+    "generation": 17,
+    "image_sha256": "7bd57f384697dc5b460ae96a3029a752299287636d6aa260fdcad4add819abdc",
+    "image_size": 482864,
+    "manifest_sha256": "907eb11f1ad165d5b935fcf8af5b8aaa8c5707a529b82108b11270b41ebf4394",
+    "max_peer_generation": 17,
+    "min_peer_generation": 16,
+    "package_sha256": "587dd4dc1aefb4180a5ed666f96ff3f1e0ca237e9175e99bd1cdc2214dad0ebd",
+    "path": "/home/li/.local/share/makcm-ota/gen17-release/gen17g_journal.tx2484373402.packages/left-587dd4dc1aefb4180a5ed666f96ff3f1e0ca237e9175e99bd1cdc2214dad0ebd.mkota",
+    "role": "left",
+    "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd"
+  },
+  "phase": "new",
+  "port": "/dev/ttyACM0",
+  "record_crc32": "66144fdd",
+  "record_seq": 1,
+  "right": {
+    "chunk_size": 4096,
+    "generation": 17,
+    "image_sha256": "7770645ec6af164c0e06b1666574d479c9cf3f0ac9d91deaaafb850c01e41e43",
+    "image_size": 482544,
+    "manifest_sha256": "0892089cda3b9d56107cf01ca9fe8f5e4d2afc18f6a87b855990a506aa7ffbf1",
+    "max_peer_generation": 17,
+    "min_peer_generation": 16,
+    "package_sha256": "6281fcae00b09ec3e1129b1b8b29d0ca33110509fbfb6805cb3b1ac9c815fa8f",
+    "path": "/home/li/.local/share/makcm-ota/gen17-release/gen17g_journal.tx2484373402.packages/right-6281fcae00b09ec3e1129b1b8b29d0ca33110509fbfb6805cb3b1ac9c815fa8f.mkota",
+    "role": "right",
+    "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd"
+  },
+  "runtime_scope": "system",
+  "runtime_unit": null,
+  "runtime_was_active": false,
+  "schema": "makcm.pair-auto-update.v2",
+  "target_generation": 17,
+  "transaction_id": 2484373402,
+  "updated_at": "2026-08-06T19:13:08.044+00:00",
+  "usb_identity": {
+    "bus_path": "1-7",
+    "pid": "55d3",
+    "port": "/dev/ttyACM0",
+    "serial": "5ACC041332",
+    "tty": "ttyACM0",
+    "vid": "1a86"
+  }
+}

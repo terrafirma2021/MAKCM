@@ -1,0 +1,2 @@
+{"phase": "package_ok", "package_sha": "b0c7e199800097ca48487209d4ef953d6ab1622e6f4279f5b5efae080ab28c38", "package_bytes": 469360, "frozen_left_app_sha": "19a5b3edd961fbefa2c93419cbed01d6f00a0b95bdd10ba2ac1e11bfdb1e91a3"}
+{"phase": "before", "state": 0, "active_generation": 5, "target_generation": 0, "status_flags": 12, "transaction_id": 863439654}

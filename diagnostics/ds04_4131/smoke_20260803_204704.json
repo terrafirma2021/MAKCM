@@ -1,0 +1,78 @@
+{
+  "artifacts": {
+    "candidate": {
+      "expected_sha256": "6b29a7728e7820c6f970004043b7349bd1a6fa86f26ce8f5098b19249aa78b9b",
+      "path": "/tmp/makcm_ds03/arm_artifacts/candidate.json"
+    },
+    "firmware_binary": {
+      "expected_sha256": "98b74e87e7a6ea7fade5895785c6f804900ed982f8ade8af8bfd632a441f6af7",
+      "path": "/tmp/makcm_ds03/arm_artifacts/firmware.bin"
+    },
+    "local_entry": {
+      "expected_sha256": "21a20c5d32ddb2b964b635f45c653695157ca92372b8b2641d0548dec3839db8",
+      "path": "/tmp/makcm_ds03/arm_artifacts/controller_profiles.local.inc"
+    },
+    "review": {
+      "expected_sha256": "622ee8bcd5aa195878a418f7e5129afa6715fc52bc4136de21d5ae5d0d5309d2",
+      "path": "/tmp/makcm_ds03/arm_artifacts/review.json"
+    }
+  },
+  "authorizations": {
+    "allow_ds04_state_q15": true,
+    "allow_state_q15_alias": false,
+    "allow_stick_output": true
+  },
+  "cap": 0.2,
+  "error": "timeout waiting for DS-04 response",
+  "events": [
+    {
+      "direction": "event",
+      "line": "artifacts:verified_before_serial_open",
+      "timestamp_utc": "2026-08-03T12:46:57.719+00:00"
+    },
+    {
+      "direction": "event",
+      "line": "serial_process_guard:clear",
+      "timestamp_utc": "2026-08-03T12:46:57.735+00:00"
+    },
+    {
+      "direction": "event",
+      "line": "authorization:second_gate_granted",
+      "timestamp_utc": "2026-08-03T12:46:57.737+00:00"
+    },
+    {
+      "direction": "event",
+      "line": "artifacts:verified",
+      "timestamp_utc": "2026-08-03T12:46:57.737+00:00"
+    },
+    {
+      "direction": "command",
+      "line": "km.caps()",
+      "timestamp_utc": "2026-08-03T12:46:57.737+00:00"
+    },
+    {
+      "direction": "event",
+      "line": "failure:HarnessTimeout:timeout waiting for DS-04 response",
+      "timestamp_utc": "2026-08-03T12:47:00.743+00:00"
+    },
+    {
+      "direction": "command",
+      "line": "km.output_mode(mouse)",
+      "timestamp_utc": "2026-08-03T12:47:00.743+00:00"
+    },
+    {
+      "direction": "event",
+      "line": "mouse_teardown:failed:HarnessTimeout:timeout waiting for DS-04 response",
+      "timestamp_utc": "2026-08-03T12:47:03.749+00:00"
+    }
+  ],
+  "finished_at_utc": "2026-08-03T12:47:03.751+00:00",
+  "outcome": "failure",
+  "schema": "makcm.ds04-state-q15-transcript.v1",
+  "source": "state_q15",
+  "started_at_utc": "2026-08-03T12:46:57.718+00:00",
+  "ttl_ms": {
+    "max": 80,
+    "min": 16
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "configuration": "09025400030100a0fa090400000103010200092111010001225e0007058103400001090401000103000100092111010001229f0007058203400001090402000103000100092111010001223d0007058303400001",
+  "device": "120100020000004032157b00000201020001",
+  "hub": "\\\\?\\usb#vid_05e3&pid_0608#6&2a19da8c&0&4#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+  "pid": "007b",
+  "port": 3,
+  "topology": {
+    "declared_interfaces": 3,
+    "declared_total": 84,
+    "endpoints": [
+      {
+        "address": 129,
+        "attributes": 3,
+        "interface": 0,
+        "interval": 1,
+        "packet_size": 64
+      },
+      {
+        "address": 130,
+        "attributes": 3,
+        "interface": 1,
+        "interval": 1,
+        "packet_size": 64
+      },
+      {
+        "address": 131,
+        "attributes": 3,
+        "interface": 2,
+        "interval": 1,
+        "packet_size": 64
+      }
+    ],
+    "interfaces": [
+      {
+        "alternate": 0,
+        "class": 3,
+        "endpoints": [
+          129
+        ],
+        "number": 0,
+        "protocol": 2,
+        "subclass": 1
+      },
+      {
+        "alternate": 0,
+        "class": 3,
+        "endpoints": [
+          130
+        ],
+        "number": 1,
+        "protocol": 1,
+        "subclass": 0
+      },
+      {
+        "alternate": 0,
+        "class": 3,
+        "endpoints": [
+          131
+        ],
+        "number": 2,
+        "protocol": 1,
+        "subclass": 0
+      }
+    ],
+    "raw_length": 84
+  },
+  "vid": "1532"
+}

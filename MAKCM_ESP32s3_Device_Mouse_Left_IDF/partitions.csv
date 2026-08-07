@@ -1,0 +1,9 @@
+# MAKCM left A/B schema v1. Changing any offset/size requires a new
+# partition_schema in every signed OTA manifest and a full wired migration.
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x6000,
+otadata,  data, ota,     0xf000,   0x2000,
+phy_init, data, phy,     0x11000,  0x1000,
+ota_0,    app,  ota_0,   0x20000,  0x1D0000,
+ota_1,    app,  ota_1,   0x1F0000, 0x1D0000,
+coredump, data, coredump,0x3C0000, 0x10000,

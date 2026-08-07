@@ -1,0 +1,10 @@
+{
+  "role": "right",
+  "generation": 17,
+  "note": "rebuilt from persist-fix source (idle-timeout 45s, local_validated encoder fix, V crumb)",
+  "image_sha256": "0f56939aaf1148c858d7a6c0f589eed02f49249a75ef7bcf9d4ee63ea51c0522",
+  "package_sha256": "66105e5ec0824e3a673f2559f531e1d50560cf2ad3761143383a1d29af7e8da9",
+  "image_bytes": 484400,
+  "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd",
+  "remote_dir": "/home/li/.local/share/makcm-ota/gen17-release"
+}

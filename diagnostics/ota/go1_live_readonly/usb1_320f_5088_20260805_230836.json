@@ -1,0 +1,77 @@
+{
+  "schema": "makcm.go1-usb1-descriptor.v1",
+  "captured_utc": "2026-08-05T23:08:36.832717+00:00",
+  "flash_write": false,
+  "ota_commands": false,
+  "windows_com_download": false,
+  "label": "usb1_320f_5088",
+  "snapshot": {
+    "hub": "\\\\?\\usb#vid_05e3&pid_0608#6&2a19da8c&0&4#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+    "port": 4,
+    "vid": "320f",
+    "pid": "5088",
+    "device": "12010002000000080f328850010101020001",
+    "configuration": "09024200020100a064090400000103010100092111010001224f000705810308000109040100020301010009211101000122dd000705820340000107050503400001",
+    "topology": {
+      "declared_total": 66,
+      "raw_length": 66,
+      "declared_interfaces": 2,
+      "interfaces": [
+        {
+          "number": 0,
+          "alternate": 0,
+          "class": 3,
+          "subclass": 1,
+          "protocol": 1,
+          "endpoints": [
+            129
+          ]
+        },
+        {
+          "number": 1,
+          "alternate": 0,
+          "class": 3,
+          "subclass": 1,
+          "protocol": 1,
+          "endpoints": [
+            130,
+            5
+          ]
+        }
+      ],
+      "endpoints": [
+        {
+          "address": 129,
+          "attributes": 3,
+          "packet_size": 8,
+          "interval": 1,
+          "interface": 0
+        },
+        {
+          "address": 130,
+          "attributes": 3,
+          "packet_size": 64,
+          "interval": 1,
+          "interface": 1
+        },
+        {
+          "address": 5,
+          "attributes": 3,
+          "packet_size": 64,
+          "interval": 1,
+          "interface": 1
+        }
+      ]
+    },
+    "strings": {},
+    "hid_reports": {},
+    "bos": null,
+    "qualifier": null,
+    "errors": [],
+    "capture_path": "windows_hub",
+    "analysis": {
+      "maintenance_like_interfaces": [],
+      "g08_static_pass": true
+    }
+  }
+}

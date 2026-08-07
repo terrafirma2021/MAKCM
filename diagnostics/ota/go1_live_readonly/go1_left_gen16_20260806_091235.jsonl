@@ -1,0 +1,4 @@
+{"phase": "package_ok", "package_sha": "5354c9966e438e112eb5106eaa20338dc3ac456d2c96220fe24feb2b3cf13770", "image_sha": "c94f56cf2dcbe11e98bef97a430eebcf701098cf1af80a7031a0e96a38273bee", "package_bytes": 469616}
+{"phase": "before", "tx_try": 2721386941, "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44, "local_valid": false, "transaction_id": 2721386941}
+{"phase": "pre_abort_nack", "error": "OTA NACK reason=10 (flash_write_failed)"}
+{"phase": "after_abort_status", "state": 7, "active_generation": 15, "target_generation": 15, "status_flags": 44}

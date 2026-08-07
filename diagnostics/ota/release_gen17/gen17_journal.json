@@ -1,0 +1,137 @@
+{
+  "boards": {
+    "left": {
+      "pending_action": {
+        "command": "prepare",
+        "created_at": "2026-08-06T17:00:05.559+00:00",
+        "generation": 17,
+        "image_sha256": "ae5d6b0432d085a45a4c2b77dc5dbc09bcc30a694780795dbe2b8586728a4090",
+        "manifest_sha256": "6896e5c632a85f0e44c57a6ca6462987d5082751c694a2b5d02f3f8ba411f4dc",
+        "payload_hash": "ae5d6b0432d085a45a4c2b77dc5dbc09bcc30a694780795dbe2b8586728a4090",
+        "request_digest": "6638e50f0e2caa44b0b63ad2bc9e2dab620dceb683181e045aa7155db9f3930a",
+        "sequence": 119,
+        "transaction_id": 452304596
+      }
+    },
+    "right": {
+      "pending_action": {
+        "command": "prepare",
+        "created_at": "2026-08-06T17:00:05.559+00:00",
+        "generation": 17,
+        "image_sha256": "575d4795e383b4e9130fa31d676ca1bd1d9eea0bd5a273f624b0c77083605dc7",
+        "manifest_sha256": "1b2428fa1224470962e71d1c89a2df7a0143bffd8ed9b0e45e482abfd635df4f",
+        "payload_hash": "575d4795e383b4e9130fa31d676ca1bd1d9eea0bd5a273f624b0c77083605dc7",
+        "request_digest": "6638e50f0e2caa44b0b63ad2bc9e2dab620dceb683181e045aa7155db9f3930a",
+        "sequence": 121,
+        "transaction_id": 452304596
+      }
+    }
+  },
+  "created_at": "2026-08-06T16:10:38.697+00:00",
+  "events": [
+    {
+      "at": "2026-08-06T16:10:38.697+00:00",
+      "event": "journal_created"
+    },
+    {
+      "at": "2026-08-06T16:13:45.170+00:00",
+      "event": "journal_resumed",
+      "phase": "new"
+    },
+    {
+      "active_generation": 16,
+      "at": "2026-08-06T16:13:45.985+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "active_generation": 0,
+      "at": "2026-08-06T16:13:45.985+00:00",
+      "event": "right_preflight",
+      "state": 1,
+      "target_generation": 0
+    },
+    {
+      "at": "2026-08-06T16:29:11.067+00:00",
+      "event": "journal_resumed",
+      "phase": "new"
+    },
+    {
+      "at": "2026-08-06T17:00:04.691+00:00",
+      "event": "journal_resumed",
+      "phase": "new"
+    },
+    {
+      "active_generation": 16,
+      "at": "2026-08-06T17:00:05.531+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "active_generation": 16,
+      "at": "2026-08-06T17:00:05.531+00:00",
+      "event": "right_preflight",
+      "state": 1,
+      "target_generation": 0
+    },
+    {
+      "at": "2026-08-06T17:00:05.559+00:00",
+      "event": "right_prepare_intent",
+      "request_digest": "6638e50f0e2caa44b0b63ad2bc9e2dab620dceb683181e045aa7155db9f3930a",
+      "sequence": 121
+    },
+    {
+      "at": "2026-08-06T17:00:05.559+00:00",
+      "event": "left_prepare_intent",
+      "request_digest": "6638e50f0e2caa44b0b63ad2bc9e2dab620dceb683181e045aa7155db9f3930a",
+      "sequence": 119
+    }
+  ],
+  "left": {
+    "chunk_size": 4096,
+    "generation": 17,
+    "image_sha256": "ae5d6b0432d085a45a4c2b77dc5dbc09bcc30a694780795dbe2b8586728a4090",
+    "image_size": 469504,
+    "manifest_sha256": "6896e5c632a85f0e44c57a6ca6462987d5082751c694a2b5d02f3f8ba411f4dc",
+    "max_peer_generation": 17,
+    "min_peer_generation": 16,
+    "package_sha256": "671f28d80d61e3c45ced2196cc1d41d9f4ec9e84a85ee207570b7884aa183b46",
+    "path": "/home/li/.local/share/makcm-ota/gen17-release/gen17_journal.tx452304596.packages/left-671f28d80d61e3c45ced2196cc1d41d9f4ec9e84a85ee207570b7884aa183b46.mkota",
+    "role": "left",
+    "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd"
+  },
+  "phase": "new",
+  "port": "/dev/ttyACM0",
+  "record_crc32": "6820cace",
+  "record_seq": 8,
+  "right": {
+    "chunk_size": 4096,
+    "generation": 17,
+    "image_sha256": "575d4795e383b4e9130fa31d676ca1bd1d9eea0bd5a273f624b0c77083605dc7",
+    "image_size": 482496,
+    "manifest_sha256": "1b2428fa1224470962e71d1c89a2df7a0143bffd8ed9b0e45e482abfd635df4f",
+    "max_peer_generation": 17,
+    "min_peer_generation": 16,
+    "package_sha256": "fe0ba11a215d7df8960228668c28c11c85239370457c9215c4849c8a60c8d29e",
+    "path": "/home/li/.local/share/makcm-ota/gen17-release/gen17_journal.tx452304596.packages/right-fe0ba11a215d7df8960228668c28c11c85239370457c9215c4849c8a60c8d29e.mkota",
+    "role": "right",
+    "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd"
+  },
+  "runtime_scope": "system",
+  "runtime_unit": null,
+  "runtime_was_active": false,
+  "schema": "makcm.pair-auto-update.v2",
+  "target_generation": 17,
+  "transaction_id": 452304596,
+  "updated_at": "2026-08-06T17:00:05.559+00:00",
+  "usb_identity": {
+    "bus_path": "1-7",
+    "pid": "55d3",
+    "port": "/dev/ttyACM0",
+    "serial": "5ACC041332",
+    "tty": "ttyACM0",
+    "vid": "1a86"
+  }
+}

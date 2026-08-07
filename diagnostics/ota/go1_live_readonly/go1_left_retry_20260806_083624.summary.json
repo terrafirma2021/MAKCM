@@ -1,0 +1,78 @@
+{
+  "schema": "makcm.go1-left-retry.v1",
+  "captured_utc": "2026-08-06T08:36:57.045989+00:00",
+  "package_sha": "2f0c1adc6ec16c3de74de3a6f9db78c01b6fbada84572cb900d0c5d64aece856",
+  "image_sha": "f29cacc1fc5cd0417aaf32ee8303d9a9f74142aecde962836f9524df2903fd5c",
+  "exit_code": 0,
+  "verdict": "PASS",
+  "log_path": "C:\\Users\\li\\Documents\\MAKCM\\diagnostics\\ota\\go1_live_readonly\\go1_left_retry_20260806_083624.jsonl",
+  "stderr_tail": "",
+  "phases": [
+    {
+      "phase": "package_ok",
+      "package_sha": "2f0c1adc6ec16c3de74de3a6f9db78c01b6fbada84572cb900d0c5d64aece856",
+      "package_bytes": 469424,
+      "image_sha": "f29cacc1fc5cd0417aaf32ee8303d9a9f74142aecde962836f9524df2903fd5c"
+    },
+    {
+      "phase": "before",
+      "tx_try": null,
+      "state": 0,
+      "active_generation": 5,
+      "target_generation": 0,
+      "status_flags": 12,
+      "transaction_id": 2721386941
+    },
+    {
+      "phase": "after_abort_status",
+      "state": 0,
+      "active_generation": 5,
+      "target_generation": 0,
+      "status_flags": 12
+    },
+    {
+      "phase": "prepare_start",
+      "transaction_id": 2721386941
+    },
+    {
+      "phase": "prepare_ok",
+      "result": "{'format': 'makcm.mkot-package.v1', 'source': None, 'package_size': 469424, 'package_sha256': '2f0c1adc6ec16c3de74de3a6f9db78c01b6fbada84572cb900d0c5d64aece856', 'image_size': 469232, 'image_sha256': 'f29cacc1fc5cd0417aaf32ee8303d9a9f74142aecde962836f9524df2903fd5c', 'manifest': {'version': 1, 'role': 'left', 'generation': 15, 'min_peer_generation': 5, 'max_peer_generation': 15, 'partition_schema': 1275133953, 'protocol_version': 1, 'chip_id': 9, 'chunk_size': 4096, 'hardware_revision': 'makcm-s3-r1', 'project_name': 'makcm_left_idf', 'signer_key_id': '3dd2425f94e65ad13275fe6d1e2603bd', 'signature_algorithm': 'ecdsa-p256-sha256', 'signature_raw_r_s': 'a111f5d0ed97da0a8041f8f04b8d074e4d93f8c62c15b9b1e65bea7040da38e6b215f48824456538bb1bef871ac93edb24f475d2d6f0fa6674eec0b27d3e5c63'}}"
+    },
+    {
+      "phase": "after_prepare",
+      "state": 3,
+      "active_generation": 5,
+      "target_generation": 15,
+      "status_flags": 61,
+      "next_offset": 469232,
+      "transaction_id": 2721386941
+    },
+    {
+      "phase": "activate_ack",
+      "state": 4,
+      "active_generation": 5,
+      "target_generation": 15,
+      "status_flags": 61
+    },
+    {
+      "phase": "post_activate_poll",
+      "poll": 0,
+      "label": "sticky",
+      "state": 5,
+      "active_generation": 15,
+      "target_generation": 15,
+      "status_flags": 238,
+      "local_boot_validated": true
+    },
+    {
+      "phase": "GO1_PASS",
+      "poll": 0,
+      "label": "sticky",
+      "state": 5,
+      "active_generation": 15,
+      "target_generation": 15,
+      "status_flags": 238,
+      "local_boot_validated": true
+    }
+  ]
+}

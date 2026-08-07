@@ -8,6 +8,12 @@ from colorama import Fore, Style
 
 env = DefaultEnvironment()
 platform = env.PioPlatform()
+trust_anchor = join(env.subst("$PROJECT_DIR"), "..", "common",
+                    "ota_trust_anchor.local.inc")
+if exists(trust_anchor):
+    # Put anchor presence in the compiler command instead of relying only on
+    # __has_include, so a newly provisioned trust root invalidates caches.
+    env.Append(CPPDEFINES=["MAKCM_OTA_TRUST_ANCHOR_CONFIGURED=1"])
 sys.path.append(join(platform.get_package_dir("tool-esptoolpy"))) 
 import esptool
 
@@ -21,7 +27,9 @@ def esp32_create_combined_bin(source, target, env):
 
     bootloader_offset = 0x0000
     partitions_offset = 0x8000
-    app_offset = 0x10000  
+    app_offset = 0x10000
+    otadata_offset = None
+    otadata_size = None
 
     partitions_dir = join(env.subst("$PROJECT_DIR"), "partitions")
     partition_file = find_partition_file(partitions_dir)
@@ -34,12 +42,24 @@ def esp32_create_combined_bin(source, target, env):
         print(Fore.MAGENTA + "Read partitions from " + partition_file + Style.RESET_ALL)
         csv_reader = csv.reader(csv_file, delimiter=',')
         for row in csv_reader:
-            if row[0] == 'app0':
-                app_offset = int(row[3], base=16)
+            if not row or row[0].lstrip().startswith('#'):
+                continue
+            name = row[0].strip()
+            if name == 'app0':
+                app_offset = int(row[3].strip(), base=16)
+            elif name == 'otadata':
+                otadata_offset = int(row[3].strip(), base=16)
+                otadata_size = int(row[4].strip(), base=16)
+
+    if otadata_offset is None or otadata_size != 0x2000:
+        raise RuntimeError("right OTA partition must define 8 KiB otadata")
 
     bootloader_bin = env.subst("$BUILD_DIR/bootloader.bin")
     partitions_bin = env.subst("$BUILD_DIR/partitions.bin")
     firmware_bin = env.subst("$BUILD_DIR/firmware.bin")
+    otadata_bin = env.subst("$BUILD_DIR/ota_data_initial.bin")
+    with open(otadata_bin, "wb") as ota_file:
+        ota_file.write(b"\xff" * otadata_size)
 
     merged_firmware_dir = join(env.subst("$PROJECT_DIR"), "merged_firmware")
     if not exists(merged_firmware_dir):
@@ -97,12 +117,14 @@ def esp32_create_combined_bin(source, target, env):
         "--flash_size", env.BoardConfig().get("upload.flash_size", "4MB"),
         hex(bootloader_offset), bootloader_bin,
         hex(partitions_offset), partitions_bin,
+        hex(otadata_offset), otadata_bin,
         hex(app_offset), firmware_bin,
     ]
 
     print("    Offset | File")
     print(Fore.MAGENTA + f" - {hex(bootloader_offset)} | {bootloader_bin}" + Style.RESET_ALL)
     print(Fore.MAGENTA + f" - {hex(partitions_offset)} | {partitions_bin}" + Style.RESET_ALL)
+    print(Fore.MAGENTA + f" - {hex(otadata_offset)} | {otadata_bin}" + Style.RESET_ALL)
     print(Fore.MAGENTA + f" - {hex(app_offset)} | {firmware_bin}" + Style.RESET_ALL)
 
     esptool.main(cmd)

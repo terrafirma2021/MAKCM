@@ -1,0 +1,20 @@
+{
+  "schema": "makcm.go1-powercycle-recheck.v1",
+  "captured_utc": "2026-08-06T10:52:24.644232+00:00",
+  "stdout": "{\"ok\": true, \"state\": 0, \"active\": 16, \"target\": 0, \"flags\": 204, \"local_valid\": true, \"maint\": false, \"rollback\": true, \"health\": false, \"trust\": true, \"v2_error\": \"AttributeError: 'Frame' object has no attribute 'length'\"}\n",
+  "stderr": "",
+  "exit": 0,
+  "status": {
+    "ok": true,
+    "state": 0,
+    "active": 16,
+    "target": 0,
+    "flags": 204,
+    "local_valid": true,
+    "maint": false,
+    "rollback": true,
+    "health": false,
+    "trust": true,
+    "v2_error": "AttributeError: 'Frame' object has no attribute 'length'"
+  }
+}

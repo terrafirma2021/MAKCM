@@ -1,0 +1,190 @@
+{
+  "created_at": "2026-08-03T20:06:37.865+00:00",
+  "events": [
+    {
+      "at": "2026-08-03T20:06:37.865+00:00",
+      "event": "journal_created"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:06:38.155+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "at": "2026-08-03T20:06:38.160+00:00",
+      "event": "already_current"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:06:38.480+00:00",
+      "event": "post_confirm_verified"
+    },
+    {
+      "at": "2026-08-03T20:09:28.551+00:00",
+      "event": "journal_resumed",
+      "phase": "confirmed"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:09:28.842+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "at": "2026-08-03T20:09:28.848+00:00",
+      "event": "already_current"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:09:29.145+00:00",
+      "event": "post_confirm_verified"
+    },
+    {
+      "at": "2026-08-03T20:20:56.476+00:00",
+      "event": "journal_resumed",
+      "phase": "confirmed"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:20:56.766+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "at": "2026-08-03T20:20:56.772+00:00",
+      "event": "already_current"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:20:57.049+00:00",
+      "event": "post_confirm_verified"
+    },
+    {
+      "at": "2026-08-03T20:23:32.961+00:00",
+      "event": "journal_resumed",
+      "phase": "confirmed"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:23:33.252+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "at": "2026-08-03T20:23:33.258+00:00",
+      "event": "already_current"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:23:33.555+00:00",
+      "event": "post_confirm_verified"
+    },
+    {
+      "at": "2026-08-03T20:28:46.168+00:00",
+      "event": "journal_resumed",
+      "phase": "confirmed"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:28:46.437+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "at": "2026-08-03T20:28:46.440+00:00",
+      "event": "already_current"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:28:46.740+00:00",
+      "event": "post_confirm_verified"
+    },
+    {
+      "at": "2026-08-03T20:31:22.720+00:00",
+      "event": "journal_resumed",
+      "phase": "confirmed"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:31:22.990+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "at": "2026-08-03T20:31:22.994+00:00",
+      "event": "already_current"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:31:23.271+00:00",
+      "event": "post_confirm_verified"
+    },
+    {
+      "at": "2026-08-03T20:33:56.687+00:00",
+      "event": "journal_resumed",
+      "phase": "confirmed"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:33:56.979+00:00",
+      "event": "left_preflight",
+      "state": 0,
+      "target_generation": 0
+    },
+    {
+      "at": "2026-08-03T20:33:56.985+00:00",
+      "event": "already_current"
+    },
+    {
+      "active_generation": 4,
+      "at": "2026-08-03T20:33:57.279+00:00",
+      "event": "post_confirm_verified"
+    }
+  ],
+  "left": {
+    "generation": 4,
+    "image_sha256": "38ec597c0494311b445231af5de281d8c5df2e3ef238d61f770c9290c3aa6117",
+    "image_size": 436064,
+    "max_peer_generation": 4,
+    "min_peer_generation": 3,
+    "package_sha256": "c28af5e219a8ea05e8b08e8fb7777dbe57cf09faffbab1b5efca46fcd1a2eed7",
+    "path": "/home/li/.local/share/makcm-ota/gen4-dataplane-fix/left-gen4.mkota",
+    "role": "left",
+    "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd"
+  },
+  "phase": "confirmed",
+  "port": "/dev/ttyACM0",
+  "right": {
+    "generation": 4,
+    "image_sha256": "e209c54920a59402b00f6978e33c9f68f0e36047514de25fdd486bd2b0c6bacc",
+    "image_size": 457040,
+    "max_peer_generation": 4,
+    "min_peer_generation": 3,
+    "package_sha256": "66f4781e11369094cdfa2552d47111a7aa7b0aaf3c3bda4981b142ac7ba45a0b",
+    "path": "/home/li/.local/share/makcm-ota/gen4-dataplane-fix/right-gen4.mkota",
+    "role": "right",
+    "signer_key_id": "3dd2425f94e65ad13275fe6d1e2603bd"
+  },
+  "runtime_scope": "system",
+  "runtime_unit": null,
+  "runtime_was_active": false,
+  "schema": "makcm.pair-auto-update.v1",
+  "target_generation": 4,
+  "transaction_id": 1624154591,
+  "updated_at": "2026-08-03T20:33:57.279+00:00",
+  "usb_identity": {
+    "bus_path": "1-7",
+    "pid": "55d3",
+    "port": "/dev/ttyACM0",
+    "serial": "5ACC041332",
+    "tty": "ttyACM0",
+    "vid": "1a86"
+  }
+}

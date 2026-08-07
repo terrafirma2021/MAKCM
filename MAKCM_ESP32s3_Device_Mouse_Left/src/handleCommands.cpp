@@ -3,30 +3,34 @@
 #include "tasks.h"
 #include <Arduino.h>
 #include <USB.h>
-#include <USBHIDMouse.h>
 #include "USBSetup.h"
+#include "BridgeTransport.h"
+#include "InputMonitor.h"
+#include "MakcuWireTrace.h"
+#include "PassthroughDevice.h"
 #include <esp_intr_alloc.h>
 #include <cstring>
 #include <atomic>
-#include <mutex>
 #include <RingBuf.h>
+#include <freertos/semphr.h>
 
-// Atomic variables for mouse movement and button states
-std::atomic<int> moveX(0);
-std::atomic<int> moveY(0);
-std::atomic<bool> isLeftButtonPressed(false);
-std::atomic<bool> isRightButtonPressed(false);
-std::atomic<bool> isMiddleButtonPressed(false);
-std::atomic<bool> isForwardButtonPressed(false);
-std::atomic<bool> isBackwardButtonPressed(false);
+namespace {
+SemaphoreHandle_t mouseCommandMutex = nullptr;
+
+bool lockMouseCommands() {
+    return mouseCommandMutex == nullptr ||
+        xSemaphoreTake(mouseCommandMutex, portMAX_DELAY) == pdTRUE;
+}
+
+void unlockMouseCommands() {
+    if (mouseCommandMutex != nullptr) xSemaphoreGive(mouseCommandMutex);
+}
+} // namespace
+
 std::atomic<bool> serial0Locked(true);
-std::atomic<bool> kmMoveCom(false);
 
 // Task handles
-extern TaskHandle_t mouseMoveTaskHandle;
 extern TaskHandle_t ledFlashTaskHandle;
-
-std::mutex commandMutex;
 
 volatile bool deviceConnected = false;
 bool usbReady = false;
@@ -40,8 +44,14 @@ RingBuf<char, 620> serial0RingBuffer;
 RingBuf<char, 620> serial1RingBuffer;
 int currentCommandIndex = 0;
 
-int16_t mouseX = 0;
-int16_t mouseY = 0;
+int64_t mouseX = 0;
+int64_t mouseY = 0;
+
+void initializeCommandState() {
+    if (mouseCommandMutex == nullptr) {
+        mouseCommandMutex = xSemaphoreCreateMutex();
+    }
+}
 
 const unsigned long ledFlashTime = 25; // Set The LED Flash timer in ms
 
@@ -54,7 +64,8 @@ const char *commandQueue[] = {
     "sendIADescriptors",
     "sendEndpointData",
     "sendUnknownDescriptors",
-    "sendDescriptorconfig"
+    "sendDescriptorconfig",
+    "sendPassthroughProfile"
 };
 
 // Command tables
@@ -66,10 +77,29 @@ CommandEntry serial0CommandTable[] = {
 CommandEntry debugCommandTable[] = {
     {"ESPLOG_", handleEspLog},
     {"PRINT_Parsed_Descriptors", printParsedDescriptors},
-    {"HID_Descriptors", [](const char* arg) { Serial1.print(arg); }}
+    {"HID_Descriptors", [](const char* arg) { sendBridgeText(arg, false); }}
 };
 
 CommandEntry normalCommandTable[] = {
+    {"BRIDGE_TRACE_START", [](const char *) {
+        MakcuWireTrace::start(false);
+        Serial0.println("BRIDGE_TRACE_START ok");
+    }},
+    {"BRIDGE_TRACE_STOP", [](const char *) {
+        MakcuWireTrace::stop();
+        MakcuWireTrace::printStatus(Serial0);
+    }},
+    {"BRIDGE_TRACE_STATUS", [](const char *) {
+        MakcuWireTrace::printStatus(Serial0);
+    }},
+    {"BRIDGE_TRACE_DUMP", [](const char *) {
+        MakcuWireTrace::dumpHex(Serial0);
+    }},
+    {"BRIDGE_STATUS", [](const char *) { Passthrough.printStatus(Serial0); }},
+    {"BRIDGE_MOUSE_MODE", handleBridgeMouseMode},
+    {"km.version", handleKmVersionCommand},
+    {"km.echo", handleKmEchoCommand},
+    {"km.buttons", handleKmButtonsCommand},
     {"km.moveto", handleKmMoveto},
     {"km.getpos", handleKmGetpos},
     {"km.left(1)", handleKmMouseButtonLeft1},
@@ -89,6 +119,10 @@ CommandEntry usbCommandTable[] = {
     {"USB_HELLO", handleUsbHello},
     {"USB_GOODBYE", handleUsbGoodbye},
     {"USB_ISNULL", handleNoDevice},
+    {"USB_PROFILE_NOT_READY", [](const char *) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+        sendBridgeText("sendPassthroughProfile");
+    }},
     {"USB_sendDeviceInfo:", receiveDeviceInfo},
     {"USB_sendDescriptorDevice:", receiveDescriptorDevice},
     {"USB_sendEndpointDescriptors:", receiveEndpointDescriptors},
@@ -111,8 +145,33 @@ void trimCommand(char* command) {
 }
 
 void serial0RX() {
+    uint8_t traceChunk[64];
+    size_t traceLength = 0;
+    const auto flushTrace = [&]() {
+        if (traceLength != 0) {
+            MakcuWireTrace::record(MakcuWireTrace::Direction::Rx,
+                                   traceChunk, traceLength);
+            traceLength = 0;
+        }
+    };
+
     while (Serial0.available() > 0) {
-        char byte = Serial0.read();
+        const uint8_t rawByte = static_cast<uint8_t>(Serial0.read());
+        // Secondary begins every session with this fixed 9-byte baud switch.
+        // Start before saving 0xDE so no handshake byte is lost.
+        if (!MakcuWireTrace::active() && rawByte == 0xDE) {
+            MakcuWireTrace::start(true);
+        }
+        if (MakcuWireTrace::active()) {
+            traceChunk[traceLength++] = rawByte;
+            if (traceLength == sizeof(traceChunk)) {
+                flushTrace();
+            }
+        }
+        if (consumeMakcuSpeedSwitchByte(rawByte)) {
+            continue;
+        }
+        char byte = static_cast<char>(rawByte);
 
         if (byte == '\r') {
             continue;
@@ -125,6 +184,8 @@ void serial0RX() {
         }
 
         if (byte == '\n') {
+            // Preserve RX-before-TX ordering when the command handler replies.
+            flushTrace();
             char commandBuffer[620];
             int commandIndex = 0;
 
@@ -136,21 +197,32 @@ void serial0RX() {
 
             trimCommand(commandBuffer);
 
+            // CH343 can leave one or two stale bytes in the UART FIFO across
+            // a host reopen/baud transition. Resynchronize on the ASCII Makcu
+            // command prefix instead of letting that residue turn a valid
+            // command into an unknown debug echo.
+            char *kmPrefix = strstr(commandBuffer, "km.");
+            if (kmPrefix != nullptr && kmPrefix != commandBuffer) {
+                memmove(commandBuffer, kmPrefix, strlen(kmPrefix) + 1);
+            }
+
             if (strncmp(commandBuffer, "km.move", 7) == 0) {
-                if (!kmMoveCom) {
-                    kmMoveCom = true;
-                    handleKmMoveCommand(commandBuffer);
-                }
+                handleKmMoveCommand(commandBuffer);
             } else {
                 processCommand(commandBuffer);
             }
         }
     }
+    flushTrace();
 }
 
 void serial1RX() {
     while (Serial1.available() > 0) {
-        char byte = Serial1.read();
+        const uint8_t rawByte = static_cast<uint8_t>(Serial1.read());
+        if (consumeBridgeSerialByte(rawByte)) {
+            continue;
+        }
+        char byte = static_cast<char>(rawByte);
 
         if (byte == '\r') {
             continue;
@@ -174,7 +246,9 @@ void serial1RX() {
 
             trimCommand(commandBuffer);
 
-            if (strncmp(commandBuffer, "km.move", 7) == 0 && !kmMoveCom) {
+            observeRightMouseCommand(commandBuffer);
+
+            if (strncmp(commandBuffer, "km.move", 7) == 0) {
                 handleKmMoveCommand(commandBuffer);
             } else {
                 processCommand(commandBuffer);
@@ -217,21 +291,15 @@ void processRingBufferCommand(RingBuf<char, 620> &buffer) {
 
 
 void handleKmMoveCommand(const char *command) {
-    int x, y;
-
-    sscanf(command + strlen("km.move") + 1, "%d,%d", &x, &y);
-
-    {
-        std::lock_guard<std::mutex> lock(commandMutex);
-        moveX = x;
-        moveY = y;
+    int x = 0;
+    int y = 0;
+    if (command != nullptr &&
+        sscanf(command + strlen("km.move") + 1, "%d,%d", &x, &y) == 2) {
+        // Passthrough.mouseMove() is now a constant-time relative accumulator.
+        // Processing here preserves every command even when multiple UART
+        // lines arrive before a lower-priority task gets scheduled.
+        handleMove(x, y);
     }
-
-    if (mouseMoveTaskHandle != NULL) {
-        xTaskNotifyGive(mouseMoveTaskHandle);
-    }
-
-    kmMoveCom = false;
 }
 
 void ledFlashTask(void *parameter) {
@@ -250,6 +318,9 @@ void notifyLedFlashTask() {
 
 
 void handleUsbHello(const char *command) {
+    if (processingUsbCommands) {
+        return;
+    }
     deviceConnected = true;
     usbReady = true;
     processingUsbCommands = true;
@@ -275,7 +346,7 @@ void sendNextCommand() {
         return;
     }
     const char *command = commandQueue[currentCommandIndex];
-    Serial1.println(command);
+    sendBridgeText(command);
     currentCommandIndex++;
     if (currentCommandIndex >= sizeof(commandQueue) / sizeof(commandQueue[0])) {
         usbReady = false;
@@ -283,7 +354,7 @@ void sendNextCommand() {
         InitUSB();
         vTaskDelay(700);
         serial0Locked = false;
-        Serial1.println("USB_INIT");
+        sendBridgeText("USB_INIT");
     }
 }
 
@@ -310,12 +381,13 @@ void processCommand(const char *command) {
         }
     }
 
-    if (!processingUsbCommands) {
-        for (const auto &entry : normalCommandTable) {
-            if (strncmp(command, entry.command, strlen(entry.command)) == 0) {
-                entry.handler(command);
-                return;
-            }
+    // DSE uses a fixed USB identity and enumerates independently of the legacy
+    // descriptor exchange. Control-port commands must remain live even if an
+    // older right-side descriptor sequence is still in progress.
+    for (const auto &entry : normalCommandTable) {
+        if (strncmp(command, entry.command, strlen(entry.command)) == 0) {
+            entry.handler(command);
+            return;
         }
     }
 
@@ -341,7 +413,6 @@ void handleSerial0Speed(const char *command) {
             Serial0.end();
             vTaskDelay(1000 / portTICK_PERIOD_MS);
             Serial0.begin(speed);
-            Serial0.onReceive(serial0ISR);
             Serial0.println("Serial0 speed change successful.");
         } else {
             Serial0.println("Speed was out of bounds. Min: 115200, Max: 5000000.");
@@ -353,12 +424,14 @@ void handleSerial0Speed(const char *command) {
 
 void handleDebug(const char *command) {
     int debugLevel;
-    if (strcmp(command, "DEBUG_ON") == 0) {
-        Serial1.println("DEBUG_ON");
+    if (strcmp(command, "DEBUG_STATUS") == 0) {
+        sendBridgeText(command);
+    } else if (strcmp(command, "DEBUG_ON") == 0) {
+        sendBridgeText("DEBUG_ON");
     } else if (strcmp(command, "DEBUG_OFF") == 0) {
-        Serial1.println("DEBUG_OFF");
+        sendBridgeText("DEBUG_OFF");
     } else if (sscanf(command + strlen("DEBUG_"), "%d", &debugLevel) == 1) {
-        Serial1.println(command);
+        sendBridgeText(command);
     } else {
         Serial0.println("Invalid DEBUG command. Bytes received:");
         for (int i = 0; i < strlen(command); i++) {
@@ -375,7 +448,10 @@ void handleDebug(const char *command) {
 
 
 void handleDebugcommand(const char *command) {
-    Serial0.println(command);
+    // km.echo(0) promises an echo-free production link. Re-emitting malformed
+    // binary/text fragments can create an output storm and further starve the
+    // control UART while the controller bridge is active.
+    (void)command;
 }
 
 void handleNoDevice(const char *command)
@@ -383,23 +459,13 @@ void handleNoDevice(const char *command)
     deviceConnected = false;
 }
 
-void mouseMoveTask(void *pvParameters) {
-    while (true) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        int x, y;
-        {
-            std::lock_guard<std::mutex> lock(commandMutex);
-            x = moveX;
-            y = moveY;
-        }
-        handleMove(x, y);
-    }
-}
-
 void handleKmMoveto(const char *command) {
-    int x, y;
-    sscanf(command + strlen("km.moveto") + 1, "%d,%d", &x, &y);
-    handleMoveto(x, y);
+    int x = 0;
+    int y = 0;
+    if (command != nullptr &&
+        sscanf(command + strlen("km.moveto") + 1, "%d,%d", &x, &y) == 2) {
+        handleMoveto(x, y);
+    }
 }
 
 void handleKmGetpos(const char *command) {
@@ -407,94 +473,129 @@ void handleKmGetpos(const char *command) {
 }
 
 void handleKmMouseButtonLeft1(const char *command) {
-    if (!isLeftButtonPressed.exchange(true)) {
-        handleMouseButton(MOUSE_BUTTON_LEFT, true);
+    handleMouseButton(MOUSE_BUTTON_LEFT, true);
+}
+
+void handleBridgeMouseMode(const char *command) {
+    const char *mode = command + strlen("BRIDGE_MOUSE_MODE");
+    while (*mode == ' ' || *mode == '=') ++mode;
+
+    bool enabled = true;
+    uint16_t rateHz = 0;
+    if (strcmp(mode, "off") == 0) {
+        enabled = false;
+    } else if (strcmp(mode, "unlimited") == 0 ||
+               strcmp(mode, "on") == 0) {
+        rateHz = 0;
+    } else if (strcmp(mode, "125") == 0) {
+        rateHz = 125;
+    } else if (strcmp(mode, "250") == 0) {
+        rateHz = 250;
+    } else if (strcmp(mode, "500") == 0) {
+        rateHz = 500;
+    } else {
+        Serial0.println(
+            "BRIDGE_MOUSE_MODE error expected=off|unlimited|125|250|500");
+        return;
+    }
+
+    Passthrough.configureMouseInjection(enabled, rateHz);
+    if (!enabled) {
+        Serial0.println("BRIDGE_MOUSE_MODE ok mode=off rate=0");
+    } else if (rateHz == 0) {
+        Serial0.println("BRIDGE_MOUSE_MODE ok mode=unlimited rate=0");
+    } else {
+        Serial0.printf("BRIDGE_MOUSE_MODE ok mode=limited rate=%u\r\n",
+                       static_cast<unsigned>(rateHz));
     }
 }
 
 void handleKmMouseButtonLeft0(const char *command) {
-    if (isLeftButtonPressed.exchange(false)) {
-        handleMouseButton(MOUSE_BUTTON_LEFT, false);
-    }
+    handleMouseButton(MOUSE_BUTTON_LEFT, false);
 }
 
 void handleKmMouseButtonRight1(const char *command) {
-    if (!isRightButtonPressed.exchange(true)) {
-        handleMouseButton(MOUSE_BUTTON_RIGHT, true);
-    }
+    handleMouseButton(MOUSE_BUTTON_RIGHT, true);
 }
 
 void handleKmMouseButtonRight0(const char *command) {
-    if (isRightButtonPressed.exchange(false)) {
-        handleMouseButton(MOUSE_BUTTON_RIGHT, false);
-    }
+    handleMouseButton(MOUSE_BUTTON_RIGHT, false);
 }
 
 void handleKmMouseButtonMiddle1(const char *command) {
-    if (!isMiddleButtonPressed.exchange(true)) {
-        handleMouseButton(MOUSE_BUTTON_MIDDLE, true);
-    }
+    handleMouseButton(MOUSE_BUTTON_MIDDLE, true);
 }
 
 void handleKmMouseButtonMiddle0(const char *command) {
-    if (isMiddleButtonPressed.exchange(false)) {
-        handleMouseButton(MOUSE_BUTTON_MIDDLE, false);
-    }
+    handleMouseButton(MOUSE_BUTTON_MIDDLE, false);
 }
 
 void handleKmMouseButtonForward1(const char *command) {
-    if (!isForwardButtonPressed.exchange(true)) {
-        handleMouseButton(MOUSE_BUTTON_FORWARD, true);
-    }
+    handleMouseButton(MOUSE_BUTTON_FORWARD, true);
 }
 
 void handleKmMouseButtonForward0(const char *command) {
-    if (isForwardButtonPressed.exchange(false)) {
-        handleMouseButton(MOUSE_BUTTON_FORWARD, false);
-    }
+    handleMouseButton(MOUSE_BUTTON_FORWARD, false);
 }
 
 void handleKmMouseButtonBackward1(const char *command) {
-    if (!isBackwardButtonPressed.exchange(true)) {
-        handleMouseButton(MOUSE_BUTTON_BACKWARD, true);
-    }
+    handleMouseButton(MOUSE_BUTTON_BACKWARD, true);
 }
 
 void handleKmMouseButtonBackward0(const char *command) {
-    if (isBackwardButtonPressed.exchange(false)) {
-        handleMouseButton(MOUSE_BUTTON_BACKWARD, false);
-    }
+    handleMouseButton(MOUSE_BUTTON_BACKWARD, false);
 }
 
 void handleKmWheel(const char *command) {
-    int wheelMovement;
-    sscanf(command + strlen("km.wheel") + 1, "%d", &wheelMovement);
-    handleMouseWheel(wheelMovement);
+    int wheelMovement = 0;
+    if (command != nullptr &&
+        sscanf(command + strlen("km.wheel") + 1, "%d", &wheelMovement) == 1) {
+        handleMouseWheel(wheelMovement);
+    }
 }
 
 void handleMove(int x, int y) {
-    Mouse.move(x, y);
-    mouseX += x;
-    mouseY += y;
+    if (!lockMouseCommands()) return;
+    int64_t nextX = 0;
+    int64_t nextY = 0;
+    const bool representable =
+        !__builtin_add_overflow(mouseX, static_cast<int64_t>(x), &nextX) &&
+        !__builtin_add_overflow(mouseY, static_cast<int64_t>(y), &nextY);
+    if (representable && Passthrough.mouseMove(x, y)) {
+        mouseX = nextX;
+        mouseY = nextY;
+    }
+    unlockMouseCommands();
 }
 
 void handleMoveto(int x, int y) {
-    Mouse.move(x - mouseX, y - mouseY);
-    mouseX = x;
-    mouseY = y;
+    if (!lockMouseCommands()) return;
+    int64_t deltaX = 0;
+    int64_t deltaY = 0;
+    const int64_t targetX = x;
+    const int64_t targetY = y;
+    const bool representable =
+        !__builtin_sub_overflow(targetX, mouseX, &deltaX) &&
+        !__builtin_sub_overflow(targetY, mouseY, &deltaY);
+    if (representable && Passthrough.mouseMove(deltaX, deltaY)) {
+        mouseX = targetX;
+        mouseY = targetY;
+    }
+    unlockMouseCommands();
 }
 
 void handleMouseButton(uint8_t button, bool press) {
-    if (press)
-        Mouse.press(button);
-    else
-        Mouse.release(button);
+    Passthrough.mouseButton(button, press);
 }
 
 void handleMouseWheel(int wheelMovement) {
-    Mouse.move(0, 0, wheelMovement);
+    Passthrough.mouseMove(0, 0, wheelMovement);
 }
 
 void handleGetPos() {
-    Serial0.println("km.pos(" + String(mouseX) + "," + String(mouseY) + ")");
+    if (!lockMouseCommands()) return;
+    Serial0.printf("km.pos(%lld,%lld)\r\n",
+                   static_cast<long long>(mouseX),
+                   static_cast<long long>(mouseY));
+    unlockMouseCommands();
 }

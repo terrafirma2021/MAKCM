@@ -20,11 +20,13 @@ Welcome to the MAKCU 2024 project! This is a new open-source implementation for 
 
 ## Key Features
 
-- **High-Speed Communication**: Supports 6Mbps com port communication speed for seamless performance.
+- **High-Speed Communication**: Uses a framed 5 Mbps MCU-to-MCU link.
 - **Dual ESP32-S3 MCUs**: Utilizing two microcontrollers for enhanced processing power and efficiency.
 - **RTOS-Based Task Management**: Using real-time operating system (RTOS) tasks over the conventional loop for better multitasking and system management.
 - **Automatic HID Report Descriptor Parsing**: No need for custom firmware; the system automatically parses HID report descriptors.
-- **Future-Proof**: The roadmap includes additional features such as controller support, eliminating the need for XIM.
+- **Descriptor-Driven Proxy**: Supports compatible mice, keyboards, HID
+  controllers, DSE and raw vendor/XInput-style interfaces without selecting a
+  firmware personality by VID/PID.
 - **Internal PHY in OTG Mode**: !Requires efuse burn!, ensuring the device no longer appears as anything other than device on boot.
 - **Ample Storage**: 
   - 4MB Quad SPI Flash per MCU
@@ -35,10 +37,101 @@ Welcome to the MAKCU 2024 project! This is a new open-source implementation for 
 
 ## Roadmap
 
-- Add comprehensive controller support.
+- Expand controller support beyond the documented Full-Speed topology matrix.
 - Expand HID compatibility and features.
 - Continue to optimize the RTOS tasks for more efficient use.
 - Implement additional security measures.
+
+## Descriptor-driven USB proxy
+
+The two MCUs now proxy the common USB transport used by mice, keyboards and
+game controllers instead of selecting a firmware path from VID/PID:
+
+```text
+USB device -> right MCU host -> 5 Mbps framed UART -> left MCU device -> PC/XIM
+PC/XIM endpoint/control output <- same endpoint/control transaction tunnel -> device
+```
+
+- The right MCU copies the complete 18-byte Device Descriptor, active
+  Configuration Descriptor and every HID Report Descriptor. It claims every
+  alternate-setting-zero interface and opens all supported IN/OUT endpoints.
+- The left MCU returns those raw descriptors unchanged. A TinyUSB application
+  class driver is placed ahead of the built-in HID/Vendor drivers and claims
+  the original interfaces and endpoint addresses without knowing their class.
+- Every UART data frame contains the original endpoint address followed by the
+  unmodified transfer. Class and vendor EP0 requests use a transaction ID and
+  are forwarded in both directions; this covers HID Feature/Output reports,
+  XInput output, vibration and device-specific control requests.
+- The link uses protocol-v5 COBS frames with a physical-connection session ID,
+  sequence number and CRC16-CCITT. Stale reports from a removed device cannot
+  enter the next device session.
+- Rapid downstream re-enumeration is queued while the old host handle is
+  cleaned up. The right MCU no longer restarts merely because a controller
+  changes USB persona during connection.
+- The current hardware/firmware supports Control plus Full-Speed Interrupt and
+  Bulk endpoints with packet sizes up to 64 bytes and endpoint numbers 1-5.
+  Isochronous audio/headset interfaces and alternate-setting streaming are
+  intentionally rejected instead of being partially exposed.
+- DSE triggers are also exposed on the CH343 control port using the button
+  stream consumed by SecondaryAim: R2 maps to bit 0 (fire/LMB), L2 maps to bit
+  1 (ADS/RMB). Press/release hysteresis is 24/12 and a 100 ms DSE-report
+  timeout fails closed. `km.buttons(1,period)`, `km.version()`, and the 4 Mbps
+  speed-switch blob are supported. This is a side-band observer and does not
+  modify the DSE report or descriptor.
+- Physical Compx/Boot Mouse button bits are derived directly from the framed
+  raw HID input report on the left MCU, so SecondaryAim observes the same
+  `km.<mask>` semantics for mouse L/R as for DSE R2/L2 without relying on an
+  unprotected text side channel.
+- `km.move` injects on an existing parseable signed-relative HID mouse
+  interface (Boot Mouse is the fallback). It does not
+  append a hidden mouse collection to a controller descriptor; if the physical
+  topology has no mouse interface, descriptor fidelity takes precedence and no
+  synthetic mouse endpoint is invented.
+- ESP32-S3 USB Host is Full-Speed. An 8 kHz-capable receiver therefore operates
+  at the Full-Speed frame rate rather than retaining a High-Speed 8 kHz poll.
+
+### Build verification
+
+```bash
+platformio run --project-dir MAKCM_ESP32s3_Device_Mouse_Left -j 1
+platformio run --project-dir MAKCM_ESP32s3_HID_Mouse_Right -j 1
+for src in tests/test_bridge_protocol.cpp tests/test_endpoint_tx_phase.cpp \
+           tests/test_hid_mouse_report.cpp \
+           tests/test_mouse_injection_ledger.cpp; do
+  out=/tmp/$(basename "$src" .cpp)
+  g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+      -Icommon "$src" -o "$out" && "$out"
+done
+```
+
+The scheduler, Windows/XInput boundary, supported USB matrix, identity limits
+and stress-test gates are documented in
+[`docs/PROXY_ARCHITECTURE_AND_ACCEPTANCE.md`](docs/PROXY_ARCHITECTURE_AND_ACCEPTANCE.md).
+
+### Native left-board bring-up (parallel rollback target)
+
+The descriptor-driven RAW composite proxy is being brought up in
+[`MAKCM_ESP32s3_Device_Mouse_Left_IDF`](MAKCM_ESP32s3_Device_Mouse_Left_IDF),
+separate from the flashable Arduino/V1.6 image.  The implementation plan,
+endpoint ownership rules, EP0 deferred-control flow, and T1--T8 acceptance
+gates are in
+[`docs/LEFT_NATIVE_USB_MIGRATION_PLAN.md`](docs/LEFT_NATIVE_USB_MIGRATION_PLAN.md).
+
+```bash
+cd MAKCM_ESP32s3_Device_Mouse_Left_IDF
+idf.py set-target esp32s3
+idf.py reconfigure       # resolves idf_component.yml; commit dependencies.lock
+idf.py build
+idf.py -p COMx flash monitor
+```
+
+PlatformIO users can invoke the optional wrapper with
+`platformio run --project-dir MAKCM_ESP32s3_Device_Mouse_Left_IDF`; it may
+download `framework-espidf` into the local cache.  Do not flash this target
+until the profile-validator and four-IN/two-OUT host tests pass.  The optional
+`tests/usb_host_harness.py` script reads each interrupt IN endpoint in its own
+thread and reports per-endpoint progress, which is the quickest check for the
+original XInput/mouse starvation symptom.
 
 ## Updates
 
@@ -52,7 +145,8 @@ Welcome to the MAKCU 2024 project! This is a new open-source implementation for 
 - Migrated to ISR Trigger for both UART0, UART1 (Hybrid Arduino/RTOS).
 - Removed `vTaskDelay(1)` on UART0 and UART1, enabling full-speed logging using interrupt triggers.
 - Verified and reduced task stack sizes (All tasks have a 500-byte high-water mark breathing space).
-- Added `volatile bool` + Mutex on `km.move` commands (COM will always override mouse at any time for better mouse feel).
+- Replaced latest-value `km.move` overwrites with a checked relative-integer
+  delivery ledger; USB completion, not UART parsing, retires movement.
 - Implemented button state logging:
   - Ensures that if a button is already up/down, any other sends will be ignored.
   - Results in better mouse feel and avoids random clicks.
@@ -94,4 +188,3 @@ Please refer to the [Contributing Guidelines](CONTRIBUTING.md) to get started. C
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
-

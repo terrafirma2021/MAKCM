@@ -1,0 +1,22 @@
+{
+  "artifacts": {},
+  "baud": 115200,
+  "error": "timeout waiting in phase wait_caps",
+  "events": [
+    {
+      "direction": "event",
+      "line": "serial_process_guard:clear",
+      "timestamp_utc": "2026-08-03T12:47:03.874+00:00"
+    },
+    {
+      "direction": "command",
+      "line": "km.caps()",
+      "timestamp_utc": "2026-08-03T12:47:03.876+00:00"
+    }
+  ],
+  "finished_at_utc": "2026-08-03T12:47:08.887+00:00",
+  "outcome": "failure",
+  "port": "/dev/ttyACM0",
+  "schema": "makcm.stick-phase3-transcript.v1",
+  "started_at_utc": "2026-08-03T12:47:03.857+00:00"
+}

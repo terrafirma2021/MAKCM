@@ -1,0 +1,76 @@
+# Native left-board target.  Keep the first bring-up deliberately small and
+# deterministic; Wi-Fi/BLE are not part of the USB bridge.
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_FREERTOS_UNICORE=n
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+# OTA is usable only when the generated build and bootloader agree with the
+# checked-in A/B table.  These defaults deliberately select the custom table;
+# a CSV sitting beside a SINGLE_APP sdkconfig is not an OTA configuration.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# Temporary diagnostic headroom. The release value must be justified by the
+# exact ELF/.su report plus a reviewed call-chain margin and runtime watermark.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+# UART0 (GPIO43/44) is the CH343 control protocol. Console output on that
+# UART can interleave with STICK_* replies and make a fail-close probe
+# ambiguous, so the application build has no console channel. Runtime
+# diagnostics remain available through LEFT_STATUS/STICK_STATUS.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=n
+CONFIG_ESP_CONSOLE_NONE=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+# The S3 full-speed DWC2 is used as an active proxy.  Slave/IRQ mode avoids
+# the ESP32-S3 buffer-DMA EP0 setup race while leaving ample FIFO headroom for
+# the target's 4 IN / 2 OUT endpoint topology.
+CONFIG_TINYUSB_MODE_SLAVE=y
+CONFIG_TINYUSB_MODE_DMA=n
+CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_WIFI_ENABLED=n
+CONFIG_BT_ENABLED=n
+CONFIG_TINYUSB_CDC_ENABLED=n
+CONFIG_TINYUSB_MSC_ENABLED=n
+CONFIG_TINYUSB_HID_COUNT=0
+CONFIG_TINYUSB_MIDI_COUNT=0
+CONFIG_TINYUSB_DFU_MODE_NONE=y
+CONFIG_TINYUSB_BTH_ENABLED=n
+CONFIG_TINYUSB_NET_MODE_NONE=y
+# The proxy keeps remote-wakeup/suspend state in the local EP0 state machine.
+# These callbacks must be enabled; leaving them disabled silently drops the
+# state transitions even though app_main implements the callbacks.
+CONFIG_TINYUSB_SUSPEND_CALLBACK=y
+CONFIG_TINYUSB_RESUME_CALLBACK=y
+
+# Keep stack guards, and never emit a coredump on the CH343 protocol UART --
+# binary coredump bytes injected into command framing would corrupt it.
+#
+# Coredump to FLASH is a different channel and is required.  This board has no
+# console at all (UART0 is the protocol, USB is the proxy), so with coredump
+# disabled entirely a panic left exactly one bit of evidence behind:
+# esp_reset_reason() == ESP_RST_PANIC in LEFT_STATUS.  That was enough to know
+# the board crashed and never enough to know where, which turned a
+# deterministic, reproducible panic on the right-board OTA forward path into
+# several sessions of guessing about a peer that was never at fault.  The
+# coredump partition is already reserved by the A/B schema above, so writing to
+# it needs no partition_schema change, no manifest change and no migration.
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
+CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_ENABLE_TO_UART=n
+CONFIG_ESP_COREDUMP_ENABLE_TO_NONE=n
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_SHA=y
+# Panic must still reboot fail-closed rather than halt waiting for a debugger.
+CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
+
+# UART0 runs at 4 Mbaud and UART1 at 5 Mbps; a 128-byte RX FIFO tolerates only
+# ~300 us of ISR latency.  The pair-record NVS writes during OTA disable the
+# flash cache long enough to starve a flash-resident UART ISR, so it must live
+# in IRAM.
+CONFIG_UART_ISR_IN_IRAM=y

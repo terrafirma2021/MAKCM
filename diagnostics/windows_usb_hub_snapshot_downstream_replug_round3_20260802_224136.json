@@ -1,0 +1,109 @@
+{
+  "configuration": "0902920005010080fa0904000002ff5d0100112110010125811400000000130108000007058103200001070501032000080904010000fffd1304064100010103090402000103010100092111010001225c000705820340000209040300010301020009211101000122420007058303400001090404000203000000092111010001221e000705840340000107050203400001",
+  "device": "120100020000004031411935000101020301",
+  "hub": "\\\\?\\usb#root_hub30#4&33974a7c&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+  "pid": "3519",
+  "port": 9,
+  "topology": {
+    "declared_interfaces": 5,
+    "declared_total": 146,
+    "endpoints": [
+      {
+        "address": 129,
+        "attributes": 3,
+        "interface": 0,
+        "interval": 1,
+        "packet_size": 32
+      },
+      {
+        "address": 1,
+        "attributes": 3,
+        "interface": 0,
+        "interval": 8,
+        "packet_size": 32
+      },
+      {
+        "address": 130,
+        "attributes": 3,
+        "interface": 2,
+        "interval": 2,
+        "packet_size": 64
+      },
+      {
+        "address": 131,
+        "attributes": 3,
+        "interface": 3,
+        "interval": 1,
+        "packet_size": 64
+      },
+      {
+        "address": 132,
+        "attributes": 3,
+        "interface": 4,
+        "interval": 1,
+        "packet_size": 64
+      },
+      {
+        "address": 2,
+        "attributes": 3,
+        "interface": 4,
+        "interval": 1,
+        "packet_size": 64
+      }
+    ],
+    "interfaces": [
+      {
+        "alternate": 0,
+        "class": 255,
+        "endpoints": [
+          129,
+          1
+        ],
+        "number": 0,
+        "protocol": 1,
+        "subclass": 93
+      },
+      {
+        "alternate": 0,
+        "class": 255,
+        "endpoints": [],
+        "number": 1,
+        "protocol": 19,
+        "subclass": 253
+      },
+      {
+        "alternate": 0,
+        "class": 3,
+        "endpoints": [
+          130
+        ],
+        "number": 2,
+        "protocol": 1,
+        "subclass": 1
+      },
+      {
+        "alternate": 0,
+        "class": 3,
+        "endpoints": [
+          131
+        ],
+        "number": 3,
+        "protocol": 2,
+        "subclass": 1
+      },
+      {
+        "alternate": 0,
+        "class": 3,
+        "endpoints": [
+          132,
+          2
+        ],
+        "number": 4,
+        "protocol": 0,
+        "subclass": 0
+      }
+    ],
+    "raw_length": 146
+  },
+  "vid": "4131"
+}

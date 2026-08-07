@@ -2,11 +2,8 @@
 
 #include <Arduino.h>
 #include <USB.h>
-#include <USBHIDMouse.h>
+#include "PassthroughDevice.h"
 #include "InitSettings.h"
-
-
-extern USBHIDMouse Mouse;
 
 extern DeviceInfo device_info;
 extern DescriptorDevice descriptor_device;

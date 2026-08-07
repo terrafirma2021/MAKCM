@@ -1,0 +1,7 @@
+## Keep exact resolved versions in dependencies.lock after the first resolver
+## run.  The range is deliberately narrow so a fresh checkout cannot silently
+## jump to a different TinyUSB/DWC2 ABI.
+dependencies:
+  idf: ">=5.0,<6.0"
+  espressif/esp_tinyusb: "2.2.1"
+  espressif/tinyusb: "0.21.0~1"

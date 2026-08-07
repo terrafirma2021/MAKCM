@@ -1,0 +1,8 @@
+{
+  "generation": 18,
+  "right_image_sha256": "549c0a0982212b078f0de305bbbd1ba9910940e9561ecf04c811a829367f57eb",
+  "left_image_sha256": "d346431217ee28840fd48469738b8ffca093d4dcb43fd7f0a5616e85b66e2426",
+  "right_package_sha256": "46cd61905e1e471fe112b4f74fd5a17f19d1ee5277b6f94569eb88605d788cd0",
+  "left_package_sha256": "139728b9a2b3cc07373aed3de3b7253265beaede7e362aa6111c8b70677c1fbf",
+  "note": "right: #6 transfer counters; left: #8 partition-hash fix, #9 lone-left pair-mode guard, UART ISR in IRAM"
+}
