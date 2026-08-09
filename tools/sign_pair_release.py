@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Sign one MAKCM pair release on the trusted Linux host.
 
-Replaces the per-generation ``diagnostics/ota/go1_resign_*_gen<N>.py`` copies.
 The release generation is read from ``common/OtaGeneration.h`` so a package can
 never be cut for a generation the firmware was not built at.
 
@@ -31,8 +30,8 @@ GENERATION_HEADER = ROOT / "common" / "OtaGeneration.h"
 OTA_TOOL = ROOT / "tools" / "makcm_ota_tool.py"
 LEFT_IMAGE = (ROOT / "MAKCM_ESP32s3_Device_Mouse_Left_IDF" / "build"
               / "makcm_left_idf.bin")
-RIGHT_IMAGE = (ROOT / "MAKCM_ESP32s3_HID_Mouse_Right" / ".pio" / "build"
-               / "RIGHT" / "firmware.bin")
+RIGHT_IMAGE = (ROOT / "MAKCM_ESP32s3_HID_Mouse_Right" / "build"
+               / "makcm_right_idf.bin")
 
 REMOTE_SIGNING = "/home/li/.config/makcm-ota/signing"
 PRIVATE_KEY = f"{REMOTE_SIGNING}/production-p256.pem"
@@ -70,8 +69,12 @@ def assert_image_identity(image: Path, role: str, generation: int) -> None:
     it locally turns a stale build into an immediate, readable error instead
     of an SSH round trip that fails at the signing step.
     """
+    try:
+        data = image.read_bytes()
+    except FileNotFoundError as exc:
+        raise SystemExit(f"missing {role} image: {image}") from exc
     validate_intrinsic_identity(
-        image.read_bytes(), role=role, generation=generation,
+        data, role=role, generation=generation,
         label=f"{role} image {image.name}")
 
 
@@ -109,8 +112,6 @@ def main() -> int:
 
     boards = (("left", LEFT_IMAGE), ("right", RIGHT_IMAGE))
     for role, image in boards:
-        if not image.is_file():
-            raise SystemExit(f"missing {role} image: {image}")
         assert_image_identity(image, role, generation)
 
     print(f"generation={generation} min_peer={min_peer} max_peer={generation}")

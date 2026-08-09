@@ -252,7 +252,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
 
     switch (bDescriptorType)
     {
-    case USB_DEVICE_DESC:
+    case USB_B_DESCRIPTOR_TYPE_DEVICE:
     {
         // Log raw bytes for USB_DEVICE_DESC
         logRawBytes("USB_DEVICE_DESC", p, p[0]); 
@@ -279,7 +279,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
         break;
     }
 
-    case USB_STRING_DESC:
+    case USB_B_DESCRIPTOR_TYPE_STRING:
     {
         // Log raw bytes for USB_STRING_DESC
         logRawBytes("USB_STRING_DESC", p, p[0]);
@@ -303,7 +303,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
         break;
     }
 
-    case USB_INTERFACE_DESC:
+    case USB_B_DESCRIPTOR_TYPE_INTERFACE:
     {
         // Log raw bytes for USB_INTERFACE_DESC
         logRawBytes("USB_INTERFACE_DESC", p, p[0]);
@@ -407,7 +407,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
         break;
     }
 
-    case USB_ENDPOINT_DESC:
+    case USB_B_DESCRIPTOR_TYPE_ENDPOINT:
     {
         // Log raw bytes for USB_ENDPOINT_DESC
         logRawBytes("USB_ENDPOINT_DESC", p, p[0]);
@@ -571,7 +571,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
         break;
     }
 
-    case USB_INTERFACE_ASSOC_DESC:
+    case USB_B_DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION:
     {
         // Log raw bytes for USB_INTERFACE_ASSOC_DESC
         logRawBytes("USB_INTERFACE_ASSOC_DESC", p, p[0]);   // did not log 
@@ -591,7 +591,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
         break;
     }
 
-    case USB_HID_DESC:
+    case makcm::usb::kHidDescriptorType:
     {
         // Descriptor type 0x21 is class-specific, not globally synonymous
         // with HID. XInput uses a different 0x21 block on a vendor interface.
@@ -606,17 +606,18 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
         logRawBytes("USB_HID_DESC", p, p[0]);
         ESP_LOGI("EspUsbHost::onConfig", "Descriptor Type: USB_HID_DESC");
 
-        const tusb_hid_descriptor_hid_t *hid_desc = (const tusb_hid_descriptor_hid_t *)p;
+        const auto *hid_desc =
+            reinterpret_cast<const makcm::usb::HidClassDescriptor *>(p);
 
         if (hidDescriptorCounter < MAX_HID_DESCRIPTORS)
         {
-            hid_descriptors[hidDescriptorCounter].bLength = hid_desc->bLength;
-            hid_descriptors[hidDescriptorCounter].bDescriptorType = hid_desc->bDescriptorType;
-            hid_descriptors[hidDescriptorCounter].bcdHID = hid_desc->bcdHID;
-            hid_descriptors[hidDescriptorCounter].bCountryCode = hid_desc->bCountryCode;
-            hid_descriptors[hidDescriptorCounter].bNumDescriptors = hid_desc->bNumDescriptors;
-            hid_descriptors[hidDescriptorCounter].bReportType = hid_desc->bReportType;
-            hid_descriptors[hidDescriptorCounter].wReportLength = hid_desc->wReportLength;
+            hid_descriptors[hidDescriptorCounter].bLength = hid_desc->length;
+            hid_descriptors[hidDescriptorCounter].bDescriptorType = hid_desc->descriptorType;
+            hid_descriptors[hidDescriptorCounter].bcdHID = hid_desc->hidVersion;
+            hid_descriptors[hidDescriptorCounter].bCountryCode = hid_desc->countryCode;
+            hid_descriptors[hidDescriptorCounter].bNumDescriptors = hid_desc->descriptorCount;
+            hid_descriptors[hidDescriptorCounter].bReportType = hid_desc->reportDescriptorType;
+            hid_descriptors[hidDescriptorCounter].wReportLength = hid_desc->reportDescriptorLength;
             if (currentInterfaceNumber < 17) {
                 endpoint_data_list[currentInterfaceNumber].bCountryCode = hid_descriptors[hidDescriptorCounter].bCountryCode;
             }
@@ -657,7 +658,7 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p)
         break;
     }
 
-    case USB_CONFIGURATION_DESC:
+    case USB_B_DESCRIPTOR_TYPE_CONFIGURATION:
     {
         // Log raw bytes for USB_CONFIGURATION_DESC
         logRawBytes("USB_CONFIGURATION_DESC", p, p[0]);
@@ -1821,82 +1822,94 @@ void EspUsbHost::_onStringDescriptor(usb_transfer_t *transfer)
 }
 
 
-void EspUsbHost::onMouse(hid_mouse_report_t report, uint8_t last_buttons)
+void EspUsbHost::onMouse(makcm::usb::BootMouseReport report,
+                         uint8_t last_buttons)
 {
     ESP_LOGI("EspUsbHost", "Mouse event detected");
 
     ESP_LOGD("EspUsbHost", 
              "Mouse State: last_buttons=0x%02x(%c%c%c%c%c), buttons=0x%02x(%c%c%c%c%c), x=%d, y=%d, wheel=%d",
              last_buttons,
-             (last_buttons & MOUSE_BUTTON_LEFT) ? 'L' : ' ',
-             (last_buttons & MOUSE_BUTTON_RIGHT) ? 'R' : ' ',
-             (last_buttons & MOUSE_BUTTON_MIDDLE) ? 'M' : ' ',
-             (last_buttons & MOUSE_BUTTON_BACKWARD) ? 'B' : ' ',
-             (last_buttons & MOUSE_BUTTON_FORWARD) ? 'F' : ' ',
+             (last_buttons & makcm::usb::kMouseButtonLeft) ? 'L' : ' ',
+             (last_buttons & makcm::usb::kMouseButtonRight) ? 'R' : ' ',
+             (last_buttons & makcm::usb::kMouseButtonMiddle) ? 'M' : ' ',
+             (last_buttons & makcm::usb::kMouseButtonBackward) ? 'B' : ' ',
+             (last_buttons & makcm::usb::kMouseButtonForward) ? 'F' : ' ',
              report.buttons,
-             (report.buttons & MOUSE_BUTTON_LEFT) ? 'L' : ' ',
-             (report.buttons & MOUSE_BUTTON_RIGHT) ? 'R' : ' ',
-             (report.buttons & MOUSE_BUTTON_MIDDLE) ? 'M' : ' ',
-             (report.buttons & MOUSE_BUTTON_BACKWARD) ? 'B' : ' ',
-             (report.buttons & MOUSE_BUTTON_FORWARD) ? 'F' : ' ',
+             (report.buttons & makcm::usb::kMouseButtonLeft) ? 'L' : ' ',
+             (report.buttons & makcm::usb::kMouseButtonRight) ? 'R' : ' ',
+             (report.buttons & makcm::usb::kMouseButtonMiddle) ? 'M' : ' ',
+             (report.buttons & makcm::usb::kMouseButtonBackward) ? 'B' : ' ',
+             (report.buttons & makcm::usb::kMouseButtonForward) ? 'F' : ' ',
              report.x,
              report.y,
              report.wheel);
 }
 
 
-void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
+void EspUsbHost::onMouseButtons(makcm::usb::BootMouseReport report,
+                                uint8_t last_buttons)
 {
-    if (!(last_buttons & MOUSE_BUTTON_LEFT) && (report.buttons & MOUSE_BUTTON_LEFT))
+    if (!(last_buttons & makcm::usb::kMouseButtonLeft) &&
+        (report.buttons & makcm::usb::kMouseButtonLeft))
     {
         serial1Send("km.left(1)\n");
         ESP_LOGI("EspUsbHost", "Left mouse button pressed");
     }
-    if ((last_buttons & MOUSE_BUTTON_LEFT) && !(report.buttons & MOUSE_BUTTON_LEFT))
+    if ((last_buttons & makcm::usb::kMouseButtonLeft) &&
+        !(report.buttons & makcm::usb::kMouseButtonLeft))
     {
         serial1Send("km.left(0)\n");
         ESP_LOGI("EspUsbHost", "Left mouse button released");
     }
 
-    if (!(last_buttons & MOUSE_BUTTON_RIGHT) && (report.buttons & MOUSE_BUTTON_RIGHT))
+    if (!(last_buttons & makcm::usb::kMouseButtonRight) &&
+        (report.buttons & makcm::usb::kMouseButtonRight))
     {
         serial1Send("km.right(1)\n");
         ESP_LOGI("EspUsbHost", "Right mouse button pressed");
     }
-    if ((last_buttons & MOUSE_BUTTON_RIGHT) && !(report.buttons & MOUSE_BUTTON_RIGHT))
+    if ((last_buttons & makcm::usb::kMouseButtonRight) &&
+        !(report.buttons & makcm::usb::kMouseButtonRight))
     {
         serial1Send("km.right(0)\n");
         ESP_LOGI("EspUsbHost", "Right mouse button released");
     }
 
-    if (!(last_buttons & MOUSE_BUTTON_MIDDLE) && (report.buttons & MOUSE_BUTTON_MIDDLE))
+    if (!(last_buttons & makcm::usb::kMouseButtonMiddle) &&
+        (report.buttons & makcm::usb::kMouseButtonMiddle))
     {
         serial1Send("km.middle(1)\n");
         ESP_LOGI("EspUsbHost", "Middle mouse button pressed");
     }
-    if ((last_buttons & MOUSE_BUTTON_MIDDLE) && !(report.buttons & MOUSE_BUTTON_MIDDLE))
+    if ((last_buttons & makcm::usb::kMouseButtonMiddle) &&
+        !(report.buttons & makcm::usb::kMouseButtonMiddle))
     {
         serial1Send("km.middle(0)\n");
         ESP_LOGI("EspUsbHost", "Middle mouse button released");
     }
 
-    if (!(last_buttons & MOUSE_BUTTON_FORWARD) && (report.buttons & MOUSE_BUTTON_FORWARD))
+    if (!(last_buttons & makcm::usb::kMouseButtonForward) &&
+        (report.buttons & makcm::usb::kMouseButtonForward))
     {
         serial1Send("km.side1(1)\n");
         ESP_LOGI("EspUsbHost", "Forward mouse button pressed");
     }
-    if ((last_buttons & MOUSE_BUTTON_FORWARD) && !(report.buttons & MOUSE_BUTTON_FORWARD))
+    if ((last_buttons & makcm::usb::kMouseButtonForward) &&
+        !(report.buttons & makcm::usb::kMouseButtonForward))
     {
         serial1Send("km.side1(0)\n");
         ESP_LOGI("EspUsbHost", "Forward mouse button released");
     }
 
-    if (!(last_buttons & MOUSE_BUTTON_BACKWARD) && (report.buttons & MOUSE_BUTTON_BACKWARD))
+    if (!(last_buttons & makcm::usb::kMouseButtonBackward) &&
+        (report.buttons & makcm::usb::kMouseButtonBackward))
     {
         serial1Send("km.side2(1)\n");
         ESP_LOGI("EspUsbHost", "Backward mouse button pressed");
     }
-    if ((last_buttons & MOUSE_BUTTON_BACKWARD) && !(report.buttons & MOUSE_BUTTON_BACKWARD))
+    if ((last_buttons & makcm::usb::kMouseButtonBackward) &&
+        !(report.buttons & makcm::usb::kMouseButtonBackward))
     {
         serial1Send("km.side2(0)\n");
         ESP_LOGI("EspUsbHost", "Backward mouse button released");
@@ -1904,7 +1917,7 @@ void EspUsbHost::onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons)
 }
 
 
-void EspUsbHost::onMouseMove(hid_mouse_report_t report)
+void EspUsbHost::onMouseMove(makcm::usb::BootMouseReport report)
 {
     if (report.wheel != 0)
     {
@@ -2068,7 +2081,7 @@ void EspUsbHost::_onReceive(usb_transfer_t *transfer)
             {
                 if (buttons != usbHost->compxLastButtons)
                 {
-                    hid_mouse_report_t report = {};
+                    makcm::usb::BootMouseReport report = {};
                     report.buttons = buttons;
                     usbHost->onMouseButtons(report, usbHost->compxLastButtons);
                     usbHost->compxLastButtons = buttons;
@@ -2170,11 +2183,13 @@ void EspUsbHost::_onReceive(usb_transfer_t *transfer)
     {
         if (usbHost->endpoint_data_list[i].bInterfaceClass == USB_CLASS_HID)
         {
-            if (usbHost->endpoint_data_list[i].bInterfaceSubClass == HID_SUBCLASS_BOOT &&
-                usbHost->endpoint_data_list[i].bInterfaceProtocol == HID_ITF_PROTOCOL_MOUSE)
+            if (usbHost->endpoint_data_list[i].bInterfaceSubClass ==
+                    makcm::usb::kHidBootSubclass &&
+                usbHost->endpoint_data_list[i].bInterfaceProtocol ==
+                    makcm::usb::kHidMouseProtocol)
             {
                 static uint8_t last_buttons = 0;
-                hid_mouse_report_t report = {};
+                makcm::usb::BootMouseReport report = {};
                 report.buttons = transfer->data_buffer[usbHost->HIDReportDesc.buttonStartByte];
 
                 if (usbHost->HIDReportDesc.xAxisSize == 12 && usbHost->HIDReportDesc.yAxisSize == 12)

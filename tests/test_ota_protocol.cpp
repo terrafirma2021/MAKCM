@@ -5,7 +5,6 @@
 #include "OtaManifest.h"
 #include "OtaBoardConfig.h"
 #include "OtaProtocol.h"
-#include "PairOtaTransaction.h"
 #include "ota_protocol_golden.inc"
 
 using namespace makcm::ota;
@@ -29,10 +28,16 @@ static std::vector<uint8_t> fromHex(const char *hex) {
 
 static_assert(sizeof(makcm::ota::board::kHardwareRevisionR1) <= 16,
               "hardware revision must fit the signed manifest field");
-static_assert(sizeof(makcm::ota::board::kRightManifestProjectName) <= 32,
+static_assert(sizeof(makcm::ota::board::kRightProjectName) <= 32,
               "right project name must fit the signed manifest field");
 
 int main() {
+    static_assert(static_cast<uint8_t>(State::Idle) == 0);
+    static_assert(static_cast<uint8_t>(State::Receiving) == 1);
+    static_assert(static_cast<uint8_t>(State::Prepared) == 2);
+    static_assert(static_cast<uint8_t>(State::PendingConfirm) == 3);
+    static_assert(static_cast<uint8_t>(Command::ExitMaintenance) == 0x0A);
+
     Frame golden_source{};
     golden_source.target = Target::Right;
     golden_source.command = Command::Data;
@@ -55,6 +60,113 @@ int main() {
     assert(golden_decoded.sequence == golden_source.sequence);
     assert(std::memcmp(golden_decoded.payload, golden_payload,
                        sizeof(golden_payload)) == 0);
+
+    Frame retired_pair = golden_source;
+    retired_pair.target = static_cast<Target>(3);
+    assert(encodeFrame(retired_pair, golden_encoded.data(),
+                       golden_encoded.size()) == 0);
+    auto retired_pair_wire = golden_wire;
+    retired_pair_wire[5] = 3;
+    writeLe32(retired_pair_wire.data() + retired_pair_wire.size() - kCrcSize,
+              crc32(retired_pair_wire.data() + 4,
+                    retired_pair_wire.size() - 4 - kCrcSize));
+    assert(!decodeFrame(retired_pair_wire.data(), retired_pair_wire.size(),
+                        golden_decoded));
+
+    const auto assert_invalid_flags = [&](Command command, uint8_t flags) {
+        Frame invalid = golden_source;
+        invalid.command = command;
+        invalid.flags = flags;
+        assert(!validFrameFlags(command, flags));
+        assert(encodeFrame(invalid, golden_encoded.data(),
+                           golden_encoded.size()) == 0);
+
+        auto invalid_wire = golden_wire;
+        invalid_wire[6] = static_cast<uint8_t>(command);
+        invalid_wire[7] = flags;
+        writeLe32(invalid_wire.data() + invalid_wire.size() - kCrcSize,
+                  crc32(invalid_wire.data() + 4,
+                        invalid_wire.size() - 4 - kCrcSize));
+        assert(!decodeFrame(invalid_wire.data(), invalid_wire.size(),
+                            golden_decoded));
+    };
+
+    for (const Command command : {
+             Command::Hello, Command::EnterMaintenance, Command::Manifest,
+             Command::Prepare, Command::Activate, Command::Confirm,
+             Command::Abort, Command::ExitMaintenance}) {
+        assert(validFrameFlags(command, 0));
+        assert(validFrameFlags(command, kFlagRetransmit));
+        assert_invalid_flags(command, kFlagResponse);
+        assert_invalid_flags(command, kFlagFinal);
+    }
+    for (const uint8_t flags : {
+             uint8_t{0}, uint8_t{kFlagFinal}, uint8_t{kFlagRetransmit},
+             uint8_t{kFlagFinal | kFlagRetransmit}})
+        assert(validFrameFlags(Command::Data, flags));
+    assert_invalid_flags(Command::Data, kFlagStatusV2);
+    assert_invalid_flags(Command::Data, kFlagResponse);
+
+    assert(validFrameFlags(Command::Status, kFlagStatusV2));
+    assert(validFrameFlags(Command::Status,
+                           kFlagStatusV2 | kFlagRetransmit));
+    assert_invalid_flags(Command::Status, 0);
+    assert_invalid_flags(Command::Status, kFlagRetransmit);
+    assert_invalid_flags(Command::Status, kFlagResponse | kFlagStatusV2);
+
+    assert(validFrameFlags(Command::Ack, kFlagResponse));
+    assert(validFrameFlags(Command::Nack, kFlagResponse));
+    assert_invalid_flags(Command::Ack, 0);
+    assert_invalid_flags(Command::Nack,
+                         kFlagResponse | kFlagRetransmit);
+    assert(validFrameFlags(Command::StatusResponse,
+                           kFlagResponse | kFlagStatusV2));
+    assert_invalid_flags(Command::StatusResponse, kFlagResponse);
+    assert_invalid_flags(Command::StatusResponse,
+                         kFlagResponse | kFlagStatusV2 | kFlagRetransmit);
+    assert_invalid_flags(Command::Hello, 0x80);
+
+    CommandResponsePayload ack{};
+    ack.state = State::Prepared;
+    ack.last_command = Command::Prepare;
+    ack.next_offset = 0x10203040;
+    ack.target_generation = 14;
+    ack.active_generation = 13;
+    ack.status_flags = kStatusTrustConfigured;
+    uint8_t ack_wire[kCommandResponsePayloadSize]{};
+    encodeCommandResponsePayload(ack, ack_wire);
+    const auto ack_golden = fromHex(
+        "0102050000000000403020100e0000000d00000002000000");
+    assert(ack_golden.size() == kCommandResponsePayloadSize);
+    assert(std::memcmp(ack_wire, ack_golden.data(), ack_golden.size()) == 0);
+    CommandResponsePayload decoded_response{};
+    assert(decodeCommandResponsePayload(ack_golden.data(), ack_golden.size(),
+                                        decoded_response));
+    assert(decoded_response.state == State::Prepared);
+
+    CommandResponsePayload nack{};
+    nack.state = State::Receiving;
+    nack.last_command = Command::ExitMaintenance;
+    nack.reason = NackReason::InvalidState;
+    nack.next_offset = 0x11223344;
+    nack.target_generation = 9;
+    nack.active_generation = 8;
+    nack.status_flags = kStatusMaintenanceExclusive;
+    uint8_t nack_wire[kCommandResponsePayloadSize]{};
+    encodeCommandResponsePayload(nack, nack_wire);
+    const auto nack_golden = fromHex(
+        "01010a000e00000044332211090000000800000008000000");
+    assert(nack_golden.size() == kCommandResponsePayloadSize);
+    assert(std::memcmp(nack_wire, nack_golden.data(), nack_golden.size()) == 0);
+    assert(decodeCommandResponsePayload(nack_golden.data(), nack_golden.size(),
+                                        decoded_response));
+    assert(decoded_response.reason == NackReason::InvalidState);
+
+    auto invalid_compact = ack_golden;
+    invalid_compact[1] = 4;
+    assert(!decodeCommandResponsePayload(invalid_compact.data(),
+                                         invalid_compact.size(),
+                                         decoded_response));
 
     Frame source{};
     source.target = Target::Right;
@@ -116,111 +228,6 @@ int main() {
            makcm::ota::board::kRightPartitionSchemaV1);
     manifest_wire[31] = 1;
     assert(!decodeManifest(manifest_wire, sizeof(manifest_wire), manifest));
-
-    auto fill_fact = [](PairBoardFact &fact, Target role, uint32_t seq) {
-        fact.present = true;
-        fact.identity_complete = true;
-        fact.local_validated = true;
-        fact.role = role;
-        fact.local_phase = snapshot::Phase::LocalValidated;
-        fact.image_state = 2; // ESP_OTA_IMG_VALID
-        fact.running_slot = role == Target::Left ? 0x10 : 0x11;
-        fact.boot_slot = fact.running_slot;
-        fact.target_slot = fact.running_slot;
-        fact.previous_slot = 0x12;
-        fact.last_command = Command::Prepare;
-        fact.last_response_command = Command::Ack;
-        fact.protocol_epoch = snapshot::kProtocolEpoch;
-        fact.transaction_id = 9;
-        fact.target_generation = 4;
-        fact.previous_generation = 3;
-        fact.partition_schema = role == Target::Left
-                                    ? board::kLeftPartitionSchemaV1
-                                    : board::kRightPartitionSchemaV1;
-        fact.image_size = 340000;
-        fact.record_sequence = seq;
-        fact.last_request_sequence = 7;
-        std::memset(fact.image_sha256, role == Target::Left ? 0x11 : 0x22, 32);
-        std::memset(fact.manifest_sha256, role == Target::Left ? 0x33 : 0x44,
-                    32);
-        std::memset(fact.identity_digest, role == Target::Left ? 0x55 : 0x66,
-                    32);
-        std::memset(fact.running_image_sha256,
-                    role == Target::Left ? 0x77 : 0x88, 32);
-        std::memset(fact.previous_image_sha256,
-                    role == Target::Left ? 0x99 : 0xAA, 32);
-        std::strcpy(fact.hardware_revision, "makcm-s3-r1");
-        std::strcpy(fact.project_name,
-                    role == Target::Left ? "makcm_left_idf"
-                                         : "makcm_right_arduino");
-        std::strcpy(fact.app_version, role == Target::Left ? "makcm-g4"
-                                                            : "makcm-g4");
-    };
-
-    PairTransactionRecord record{};
-    record.stage = PairStage::BothLocalValidated;
-    record.record_sequence = 1;
-    record.transaction_id = 9;
-    record.target_generation = 4;
-    fill_fact(record.left, Target::Left, 2);
-    fill_fact(record.right, Target::Right, 5);
-    sealPairRecord(record);
-    assert(validPairRecord(record));
-    std::vector<uint8_t> pair_wire(kPairRecordWireSize);
-    assert(encodePairRecord(record, pair_wire.data(), pair_wire.size()));
-    PairTransactionRecord decoded_pair{};
-    assert(decodePairRecord(pair_wire.data(), pair_wire.size(), decoded_pair));
-    assert(decoded_pair.record_sequence == record.record_sequence);
-    assert(decoded_pair.left.target_generation == 4);
-    assert(decoded_pair.right.partition_schema ==
-           board::kRightPartitionSchemaV1);
-    assert(recoveryAction(record) == RecoveryAction::HostReconcile);
-
-    PairCompletedTombstone completed{};
-    completed.present = true;
-    completed.outcome = snapshot::Outcome::Confirmed;
-    completed.terminal_command = Command::Confirm;
-    completed.transaction_id = 9;
-    completed.target_generation = 4;
-    completed.terminal_sequence = 12;
-    completed.record_sequence = 3;
-    completed.left_target_slot = record.left.target_slot;
-    completed.right_target_slot = record.right.target_slot;
-    std::memcpy(completed.left_image_sha256, record.left.image_sha256, 32);
-    std::memcpy(completed.right_image_sha256, record.right.image_sha256, 32);
-    std::memcpy(completed.left_manifest_sha256, record.left.manifest_sha256,
-                32);
-    std::memcpy(completed.right_manifest_sha256, record.right.manifest_sha256,
-                32);
-    std::memcpy(completed.left_identity_digest, record.left.identity_digest, 32);
-    std::memcpy(completed.right_identity_digest, record.right.identity_digest,
-                32);
-    record.left.pair_committed = true;
-    record.right.pair_committed = true;
-    record.left.completed_transaction_id = 9;
-    record.right.completed_transaction_id = 9;
-    record.left.completed_outcome = snapshot::Outcome::Confirmed;
-    record.right.completed_outcome = snapshot::Outcome::Confirmed;
-    record.left.completed_terminal_command = Command::Confirm;
-    record.right.completed_terminal_command = Command::Confirm;
-    record.left.completed_terminal_sequence = 12;
-    record.right.completed_terminal_sequence = 12;
-    record.left.local_phase = snapshot::Phase::PairCommitted;
-    record.right.local_phase = snapshot::Phase::PairCommitted;
-    record.completed = completed;
-    record.stage = PairStage::BothPairCommitted;
-    sealPairRecord(record);
-    assert(validPairRecord(record));
-    assert(pairRecordHasExactPairCommit(record));
-    assert(recoveryAction(record) == RecoveryAction::None);
-
-    PairTransactionRecord conflict = record;
-    conflict.right.image_sha256[0] ^= 1;
-    sealPairRecord(conflict);
-    assert(validPairRecord(conflict));
-    assert(!pairRecordHasExactPairCommit(conflict));
-    conflict.crc ^= 1;
-    assert(!validPairRecord(conflict));
 
     return 0;
 }

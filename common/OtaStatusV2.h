@@ -4,79 +4,64 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "OtaSnapshotV2.h"
+#include "OtaProtocol.h"
 
 namespace makcm::ota {
 
+// Status V2 is the sole detailed status format and has one fixed wire layout.
 constexpr uint8_t kStatusV2Version = 2;
-constexpr size_t kStatusV2PayloadSize = 400;
+constexpr size_t kStatusV2PayloadSize = 232;
 
-enum StatusV2EvidenceFlags : uint16_t {
-    kEvidenceActivePresent = 0x0001,
-    kEvidenceCompletedPresent = 0x0002,
-    kEvidenceSnapshotValid = 0x0004,
-    kEvidenceSnapshotCopyError = 0x0008,
-    kEvidenceLocalValidated = 0x0010,
-    kEvidencePairCommitted = 0x0020,
-    kEvidenceRunningImageHashValid = 0x0040,
-    kEvidenceIdentityDigestValid = 0x0080,
-};
-constexpr uint16_t kKnownStatusV2EvidenceFlags =
-    kEvidenceActivePresent | kEvidenceCompletedPresent |
-    kEvidenceSnapshotValid | kEvidenceSnapshotCopyError |
-    kEvidenceLocalValidated | kEvidencePairCommitted |
-    kEvidenceRunningImageHashValid | kEvidenceIdentityDigestValid;
-constexpr uint32_t kKnownStatusFlags =
-    kStatusPrepared | kStatusPendingVerify | kStatusRollbackSupported |
-    kStatusTrustConfigured | kStatusPeerCompatible |
-    kStatusMaintenanceExclusive | kStatusHealthPassed |
-    kStatusLocalBootValidated;
+constexpr size_t kStatusV2TargetImageSha256Offset = 56;
+constexpr size_t kStatusV2RunningImageSha256Offset = 88;
+constexpr size_t kStatusV2ManifestSha256Offset = 120;
+constexpr size_t kStatusV2HardwareRevisionOffset = 152;
+constexpr size_t kStatusV2ProjectNameOffset = 168;
+constexpr size_t kStatusV2AppVersionOffset = 200;
 
 struct StatusPayloadV2 {
     Target role = Target::Host;
-    snapshot::Phase local_phase = snapshot::Phase::Empty;
     State state = State::Idle;
     Command last_command = Command::Hello;
     Command last_response_command = Command::StatusResponse;
-    uint8_t last_ota_operation = 0;
-    snapshot::Outcome completed_outcome = snapshot::Outcome::None;
     NackReason reason = NackReason::None;
-    uint16_t protocol_epoch = snapshot::kProtocolEpoch;
     uint32_t status_flags = 0;
     uint32_t next_offset = 0;
-    uint32_t record_transaction_id = 0;
-    uint32_t completed_transaction_id = 0;
+    uint32_t transaction_id = 0;
     uint32_t target_generation = 0;
-    uint32_t active_generation = 0;
-    uint32_t previous_generation = 0;
+    uint32_t running_generation = 0;
     uint32_t partition_schema = 0;
     uint32_t image_size = 0;
-    uint32_t record_sequence = 0;
-    uint32_t last_request_sequence = 0;
-    uint32_t completed_terminal_sequence = 0;
     uint32_t reset_reason = 0;
     int32_t last_ota_error = 0;
     int32_t last_state_query_error = 0;
-    uint16_t boot_attempt = 0;
-    uint16_t evidence_flags = 0;
     uint8_t running_slot = 0xFF;
     uint8_t boot_slot = 0xFF;
     uint8_t target_slot = 0xFF;
-    uint8_t previous_slot = 0xFF;
     uint8_t image_state = 0xFF;
-    Command completed_terminal_command = Command::Hello;
-    uint32_t record_crc32 = 0;
-    uint8_t image_sha256[32]{};
-    uint8_t completed_image_sha256[32]{};
+    uint8_t target_image_sha256[32]{};
     uint8_t running_image_sha256[32]{};
     uint8_t manifest_sha256[32]{};
-    uint8_t identity_digest[32]{};
-    uint8_t previous_image_sha256[32]{};
-    uint8_t app_elf_sha256[32]{};
     char hardware_revision[16]{};
     char project_name[32]{};
     char app_version[32]{};
 };
+
+inline bool statusV2AllZero(const uint8_t *data, size_t length) {
+    uint8_t aggregate = 0;
+    for (size_t i = 0; i < length; ++i) aggregate |= data[i];
+    return aggregate == 0;
+}
+
+inline bool validStatusV2FixedString(const char *value, size_t capacity) {
+    if (value == nullptr || capacity < 2 || value[0] == '\0') return false;
+    size_t length = 0;
+    while (length < capacity && value[length] != '\0') ++length;
+    if (length == capacity) return false;
+    for (size_t i = length + 1; i < capacity; ++i)
+        if (value[i] != '\0') return false;
+    return true;
+}
 
 inline bool validNackReason(NackReason reason) {
     return static_cast<uint16_t>(reason) <=
@@ -90,80 +75,59 @@ inline bool validResponseCommand(Command command) {
 
 inline bool validStatusV2(const StatusPayloadV2 &status) {
     if ((status.role != Target::Left && status.role != Target::Right) ||
-        !snapshot::validPhase(status.local_phase) ||
         static_cast<uint8_t>(status.state) >
-            static_cast<uint8_t>(State::Fault) ||
+            static_cast<uint8_t>(State::PendingConfirm) ||
         !validCommand(status.last_command) ||
         !validResponseCommand(status.last_response_command) ||
-        !snapshot::validOutcome(status.completed_outcome) ||
         !validNackReason(status.reason) ||
-        status.protocol_epoch != snapshot::kProtocolEpoch ||
-        // A board that can answer is running an image, so its generation is
-        // never zero.  Without this the right board shipped a Status V2 that
-        // simply omitted the field and still validated on both sides.
-        status.active_generation == 0 ||
-        status.record_sequence == 0 ||
-        status.record_sequence == UINT32_MAX ||
         (status.status_flags & ~kKnownStatusFlags) != 0 ||
-        (status.evidence_flags & ~kKnownStatusV2EvidenceFlags) != 0 ||
-        (status.evidence_flags & kEvidenceSnapshotValid) == 0 ||
-        !snapshot::validFixedString(status.hardware_revision,
-                                    sizeof(status.hardware_revision)) ||
-        !snapshot::validFixedString(status.project_name,
-                                    sizeof(status.project_name)) ||
-        !snapshot::validFixedString(status.app_version,
-                                    sizeof(status.app_version)) ||
-        snapshot::allZero(status.app_elf_sha256,
-                          sizeof(status.app_elf_sha256)))
+        status.running_generation == 0 ||
+        status.partition_schema == 0 ||
+        statusV2AllZero(status.running_image_sha256, 32) ||
+        !validStatusV2FixedString(status.hardware_revision,
+                                  sizeof(status.hardware_revision)) ||
+        !validStatusV2FixedString(status.project_name,
+                                  sizeof(status.project_name)) ||
+        !validStatusV2FixedString(status.app_version,
+                                  sizeof(status.app_version)))
         return false;
-    const bool active =
-        (status.evidence_flags & kEvidenceActivePresent) != 0;
-    const bool completed =
-        (status.evidence_flags & kEvidenceCompletedPresent) != 0;
-    if (active &&
-        (status.local_phase == snapshot::Phase::Empty ||
-         status.local_phase == snapshot::Phase::PairCommitted ||
-         status.record_transaction_id == 0 ||
-         status.target_generation == 0 ||
-         status.previous_generation == 0 ||
-         status.partition_schema == 0 || status.image_size == 0 ||
-         status.last_request_sequence == 0 ||
-         status.last_request_sequence == UINT32_MAX ||
-         status.target_slot == 0xFF || status.previous_slot == 0xFF ||
-         status.target_slot == status.previous_slot ||
-         snapshot::allZero(status.image_sha256, 32) ||
-         snapshot::allZero(status.manifest_sha256, 32) ||
-         snapshot::allZero(status.identity_digest, 32) ||
-         snapshot::allZero(status.previous_image_sha256, 32)))
+
+    if ((status.last_response_command == Command::Nack) !=
+        (status.reason != NackReason::None))
         return false;
-    if (completed &&
-        (status.completed_transaction_id == 0 ||
-         status.completed_terminal_sequence == 0 ||
-         status.completed_terminal_sequence == UINT32_MAX ||
-         status.completed_outcome == snapshot::Outcome::None ||
-         (status.completed_terminal_command != Command::Confirm &&
-          status.completed_terminal_command != Command::Abort) ||
-         ((status.completed_outcome == snapshot::Outcome::Confirmed) !=
-          (status.completed_terminal_command == Command::Confirm)) ||
-         snapshot::allZero(status.completed_image_sha256, 32)))
+
+    const bool state_query_ok = status.last_state_query_error == 0;
+    if (state_query_ok) {
+        if (status.running_slot == 0xFF || status.boot_slot == 0xFF ||
+            status.image_state > 5)
+            return false;
+    } else if (status.running_slot != 0xFF || status.boot_slot != 0xFF ||
+               status.image_state != 0xFF) {
         return false;
-    if (!active && (status.record_transaction_id != 0 ||
-                    status.last_request_sequence != 0 ||
-                    status.local_phase != snapshot::Phase::Empty))
+    }
+
+    const bool transient = status.state == State::Receiving ||
+                           status.state == State::Prepared;
+    if (transient) {
+        if (status.transaction_id == 0 || status.target_generation == 0 ||
+            status.image_size == 0 ||
+            status.next_offset > status.image_size ||
+            status.target_slot == 0xFF ||
+            statusV2AllZero(status.target_image_sha256, 32) ||
+            statusV2AllZero(status.manifest_sha256, 32))
+            return false;
+        if (status.state == State::Prepared &&
+            status.next_offset != status.image_size)
+            return false;
+    } else if (status.transaction_id != 0 || status.target_generation != 0 ||
+               status.image_size != 0 ||
+               status.next_offset != 0 || status.target_slot != 0xFF ||
+               !statusV2AllZero(status.target_image_sha256, 32) ||
+               !statusV2AllZero(status.manifest_sha256, 32)) {
+        // Idle has no transaction. PendingConfirm is identified solely by
+        // the running generation and running image hash.
         return false;
-    if (!completed &&
-        (status.completed_transaction_id != 0 ||
-         status.completed_terminal_sequence != 0 ||
-         status.completed_outcome != snapshot::Outcome::None ||
-         status.completed_terminal_command != Command::Hello ||
-         !snapshot::allZero(status.completed_image_sha256, 32)))
-        return false;
-    if ((status.evidence_flags & kEvidenceRunningImageHashValid) != 0 &&
-        snapshot::allZero(status.running_image_sha256, 32))
-        return false;
-    if ((status.evidence_flags & kEvidenceIdentityDigestValid) != 0 &&
-        snapshot::allZero(status.identity_digest, 32))
-        return false;
+    }
     return true;
 }
 
@@ -175,105 +139,78 @@ inline bool encodeStatusV2(const StatusPayloadV2 &status, uint8_t *wire,
     memset(wire, 0, kStatusV2PayloadSize);
     wire[0] = kStatusV2Version;
     wire[1] = static_cast<uint8_t>(status.role);
-    wire[2] = static_cast<uint8_t>(status.local_phase);
-    wire[3] = static_cast<uint8_t>(status.state);
-    wire[4] = static_cast<uint8_t>(status.last_command);
-    wire[5] = static_cast<uint8_t>(status.last_response_command);
-    wire[6] = status.last_ota_operation;
-    wire[7] = static_cast<uint8_t>(status.completed_outcome);
-    writeLe16(wire + 8, static_cast<uint16_t>(status.reason));
-    writeLe16(wire + 10, status.protocol_epoch);
-    writeLe32(wire + 12, status.status_flags);
-    writeLe32(wire + 16, status.next_offset);
-    writeLe32(wire + 20, status.record_transaction_id);
-    writeLe32(wire + 24, status.completed_transaction_id);
+    wire[2] = static_cast<uint8_t>(status.state);
+    wire[3] = static_cast<uint8_t>(status.last_command);
+    wire[4] = static_cast<uint8_t>(status.last_response_command);
+    wire[5] = status.running_slot;
+    wire[6] = status.boot_slot;
+    wire[7] = status.target_slot;
+    wire[8] = status.image_state;
+    writeLe16(wire + 12, static_cast<uint16_t>(status.reason));
+    writeLe32(wire + 16, status.status_flags);
+    writeLe32(wire + 20, status.next_offset);
+    writeLe32(wire + 24, status.transaction_id);
     writeLe32(wire + 28, status.target_generation);
-    writeLe32(wire + 32, status.active_generation);
-    writeLe32(wire + 36, status.previous_generation);
-    writeLe32(wire + 40, status.partition_schema);
-    writeLe32(wire + 44, status.image_size);
-    writeLe32(wire + 48, status.record_sequence);
-    writeLe32(wire + 52, status.last_request_sequence);
-    writeLe32(wire + 56, status.completed_terminal_sequence);
-    writeLe32(wire + 60, status.reset_reason);
-    writeLe32(wire + 64, static_cast<uint32_t>(status.last_ota_error));
-    writeLe32(wire + 68,
+    writeLe32(wire + 32, status.running_generation);
+    writeLe32(wire + 36, status.partition_schema);
+    writeLe32(wire + 40, status.image_size);
+    writeLe32(wire + 44, status.reset_reason);
+    writeLe32(wire + 48, static_cast<uint32_t>(status.last_ota_error));
+    writeLe32(wire + 52,
               static_cast<uint32_t>(status.last_state_query_error));
-    writeLe16(wire + 72, status.boot_attempt);
-    writeLe16(wire + 74, status.evidence_flags);
-    wire[76] = status.running_slot;
-    wire[77] = status.boot_slot;
-    wire[78] = status.target_slot;
-    wire[79] = status.previous_slot;
-    wire[80] = status.image_state;
-    wire[81] = static_cast<uint8_t>(status.completed_terminal_command);
-    writeLe32(wire + 84, status.record_crc32);
-    memcpy(wire + 96, status.image_sha256, 32);
-    memcpy(wire + 128, status.completed_image_sha256, 32);
-    memcpy(wire + 160, status.running_image_sha256, 32);
-    memcpy(wire + 192, status.manifest_sha256, 32);
-    memcpy(wire + 224, status.identity_digest, 32);
-    memcpy(wire + 256, status.previous_image_sha256, 32);
-    memcpy(wire + 288, status.app_elf_sha256, 32);
-    memcpy(wire + 320, status.hardware_revision, 16);
-    memcpy(wire + 336, status.project_name, 32);
-    memcpy(wire + 368, status.app_version, 32);
+    memcpy(wire + kStatusV2TargetImageSha256Offset,
+           status.target_image_sha256, 32);
+    memcpy(wire + kStatusV2RunningImageSha256Offset,
+           status.running_image_sha256, 32);
+    memcpy(wire + kStatusV2ManifestSha256Offset,
+           status.manifest_sha256, 32);
+    memcpy(wire + kStatusV2HardwareRevisionOffset,
+           status.hardware_revision, 16);
+    memcpy(wire + kStatusV2ProjectNameOffset, status.project_name, 32);
+    memcpy(wire + kStatusV2AppVersionOffset, status.app_version, 32);
     return true;
 }
 
 inline bool decodeStatusV2(const uint8_t *wire, size_t length,
                            StatusPayloadV2 &status) {
     if (wire == nullptr || length != kStatusV2PayloadSize ||
-        wire[0] != kStatusV2Version || wire[82] != 0 || wire[83] != 0)
+        wire[0] != kStatusV2Version || wire[9] != 0 || wire[10] != 0 ||
+        wire[11] != 0 || wire[14] != 0 || wire[15] != 0)
         return false;
-    for (size_t i = 88; i < 96; ++i)
-        if (wire[i] != 0) return false;
-    memset(&status, 0, sizeof(status));
-    status.role = static_cast<Target>(wire[1]);
-    status.local_phase = static_cast<snapshot::Phase>(wire[2]);
-    status.state = static_cast<State>(wire[3]);
-    status.last_command = static_cast<Command>(wire[4]);
-    status.last_response_command = static_cast<Command>(wire[5]);
-    status.last_ota_operation = wire[6];
-    status.completed_outcome = static_cast<snapshot::Outcome>(wire[7]);
-    status.reason = static_cast<NackReason>(readLe16(wire + 8));
-    status.protocol_epoch = readLe16(wire + 10);
-    status.status_flags = readLe32(wire + 12);
-    status.next_offset = readLe32(wire + 16);
-    status.record_transaction_id = readLe32(wire + 20);
-    status.completed_transaction_id = readLe32(wire + 24);
-    status.target_generation = readLe32(wire + 28);
-    status.active_generation = readLe32(wire + 32);
-    status.previous_generation = readLe32(wire + 36);
-    status.partition_schema = readLe32(wire + 40);
-    status.image_size = readLe32(wire + 44);
-    status.record_sequence = readLe32(wire + 48);
-    status.last_request_sequence = readLe32(wire + 52);
-    status.completed_terminal_sequence = readLe32(wire + 56);
-    status.reset_reason = readLe32(wire + 60);
-    status.last_ota_error = static_cast<int32_t>(readLe32(wire + 64));
-    status.last_state_query_error =
-        static_cast<int32_t>(readLe32(wire + 68));
-    status.boot_attempt = readLe16(wire + 72);
-    status.evidence_flags = readLe16(wire + 74);
-    status.running_slot = wire[76];
-    status.boot_slot = wire[77];
-    status.target_slot = wire[78];
-    status.previous_slot = wire[79];
-    status.image_state = wire[80];
-    status.completed_terminal_command = static_cast<Command>(wire[81]);
-    status.record_crc32 = readLe32(wire + 84);
-    memcpy(status.image_sha256, wire + 96, 32);
-    memcpy(status.completed_image_sha256, wire + 128, 32);
-    memcpy(status.running_image_sha256, wire + 160, 32);
-    memcpy(status.manifest_sha256, wire + 192, 32);
-    memcpy(status.identity_digest, wire + 224, 32);
-    memcpy(status.previous_image_sha256, wire + 256, 32);
-    memcpy(status.app_elf_sha256, wire + 288, 32);
-    memcpy(status.hardware_revision, wire + 320, 16);
-    memcpy(status.project_name, wire + 336, 32);
-    memcpy(status.app_version, wire + 368, 32);
-    return validStatusV2(status);
+
+    StatusPayloadV2 decoded{};
+    decoded.role = static_cast<Target>(wire[1]);
+    decoded.state = static_cast<State>(wire[2]);
+    decoded.last_command = static_cast<Command>(wire[3]);
+    decoded.last_response_command = static_cast<Command>(wire[4]);
+    decoded.running_slot = wire[5];
+    decoded.boot_slot = wire[6];
+    decoded.target_slot = wire[7];
+    decoded.image_state = wire[8];
+    decoded.reason = static_cast<NackReason>(readLe16(wire + 12));
+    decoded.status_flags = readLe32(wire + 16);
+    decoded.next_offset = readLe32(wire + 20);
+    decoded.transaction_id = readLe32(wire + 24);
+    decoded.target_generation = readLe32(wire + 28);
+    decoded.running_generation = readLe32(wire + 32);
+    decoded.partition_schema = readLe32(wire + 36);
+    decoded.image_size = readLe32(wire + 40);
+    decoded.reset_reason = readLe32(wire + 44);
+    decoded.last_ota_error = static_cast<int32_t>(readLe32(wire + 48));
+    decoded.last_state_query_error =
+        static_cast<int32_t>(readLe32(wire + 52));
+    memcpy(decoded.target_image_sha256,
+           wire + kStatusV2TargetImageSha256Offset, 32);
+    memcpy(decoded.running_image_sha256,
+           wire + kStatusV2RunningImageSha256Offset, 32);
+    memcpy(decoded.manifest_sha256, wire + kStatusV2ManifestSha256Offset, 32);
+    memcpy(decoded.hardware_revision,
+           wire + kStatusV2HardwareRevisionOffset, 16);
+    memcpy(decoded.project_name, wire + kStatusV2ProjectNameOffset, 32);
+    memcpy(decoded.app_version, wire + kStatusV2AppVersionOffset, 32);
+    if (!validStatusV2(decoded)) return false;
+    status = decoded;
+    return true;
 }
 
 } // namespace makcm::ota

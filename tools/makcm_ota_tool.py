@@ -24,7 +24,7 @@ import secrets
 import struct
 import sys
 import time
-from typing import Any, BinaryIO, Iterable, Mapping, Protocol
+from typing import Any, Mapping, Protocol
 import zlib
 
 
@@ -57,7 +57,6 @@ MAX_WIRE_SIZE = HEADER_SIZE + MAX_CHUNK_SIZE + CRC_SIZE
 TARGET_HOST = 0
 TARGET_LEFT = 1
 TARGET_RIGHT = 2
-TARGET_PAIR = 3
 
 CMD_HELLO = 0x01
 CMD_ENTER_MAINTENANCE = 0x02
@@ -68,6 +67,7 @@ CMD_STATUS = 0x06
 CMD_ACTIVATE = 0x07
 CMD_CONFIRM = 0x08
 CMD_ABORT = 0x09
+CMD_EXIT_MAINTENANCE = 0x0A
 CMD_ACK = 0x80
 CMD_NACK = 0x81
 CMD_STATUS_RESPONSE = 0x82
@@ -82,6 +82,7 @@ VALID_COMMANDS = {
     CMD_ACTIVATE,
     CMD_CONFIRM,
     CMD_ABORT,
+    CMD_EXIT_MAINTENANCE,
     CMD_ACK,
     CMD_NACK,
     CMD_STATUS_RESPONSE,
@@ -90,66 +91,31 @@ VALID_COMMANDS = {
 FLAG_RESPONSE = 0x01
 FLAG_RETRANSMIT = 0x02
 FLAG_FINAL = 0x04
-# Explicit negotiation bit for the fixed 400-byte Status V2 payload.  A V2
-# status request/reply must carry this bit; V1 remains available only through
-# the explicit diagnostic path below.
+# Explicit negotiation bit for the sole fixed detailed status payload.
 FLAG_STATUS_V2 = 0x08
 KNOWN_FRAME_FLAGS = FLAG_RESPONSE | FLAG_RETRANSMIT | FLAG_FINAL | FLAG_STATUS_V2
 
 STATUS_V2_VERSION = 2
-STATUS_V2_SIZE = 400
-STATUS_V2_PROTOCOL_EPOCH = 2
+STATUS_V2_SIZE = 232
+COMMAND_RESPONSE_VERSION = 1
+COMMAND_RESPONSE_SIZE = 24
 
-# StatusPayloadV2 wire offsets (mirrors common/OtaStatusV2.h).  Keeping the
-# offsets named here makes the Python codec auditable against the C++ golden
-# vector without relying on native struct packing.
-STATUS_V2_EVIDENCE_ACTIVE = 0x0001
-STATUS_V2_EVIDENCE_COMPLETED = 0x0002
-STATUS_V2_EVIDENCE_SNAPSHOT_VALID = 0x0004
-STATUS_V2_EVIDENCE_SNAPSHOT_COPY_ERROR = 0x0008
-STATUS_V2_EVIDENCE_LOCAL_VALIDATED = 0x0010
-STATUS_V2_EVIDENCE_PAIR_COMMITTED = 0x0020
-STATUS_V2_EVIDENCE_RUNNING_HASH_VALID = 0x0040
-STATUS_V2_EVIDENCE_IDENTITY_VALID = 0x0080
-STATUS_V2_KNOWN_EVIDENCE = (
-    STATUS_V2_EVIDENCE_ACTIVE | STATUS_V2_EVIDENCE_COMPLETED
-    | STATUS_V2_EVIDENCE_SNAPSHOT_VALID | STATUS_V2_EVIDENCE_SNAPSHOT_COPY_ERROR
-    | STATUS_V2_EVIDENCE_LOCAL_VALIDATED | STATUS_V2_EVIDENCE_PAIR_COMMITTED
-    | STATUS_V2_EVIDENCE_RUNNING_HASH_VALID | STATUS_V2_EVIDENCE_IDENTITY_VALID
-)
-# OtaSnapshotV2 enum values used by the fixed status wire.
-STATUS_V2_MAX_PHASE = 11
-STATUS_V2_MAX_OUTCOME = 3
-
-# ``StatusFlags::kStatusPeerCompatible``.  A pair activation must not infer
-# peer health from a successful UART ACK; the receiver has to assert this bit.
-STATUS_PEER_COMPATIBLE = 0x0010
-STATUS_HEALTH_PASSED = 0x0040
-STATUS_LOCAL_BOOT_VALIDATED = 0x0080
-STATUS_PENDING_VERIFY = 0x0002
-STATUS_PREPARED = 0x0001
-STATUS_ROLLBACK_SUPPORTED = 0x0004
-STATUS_TRUST_CONFIGURED = 0x0008
-STATUS_MAINTENANCE_EXCLUSIVE = 0x0020
+STATUS_ROLLBACK_SUPPORTED = 0x0001
+STATUS_TRUST_CONFIGURED = 0x0002
+STATUS_PEER_COMPATIBLE = 0x0004
+STATUS_MAINTENANCE_EXCLUSIVE = 0x0008
+STATUS_HEALTH_PASSED = 0x0010
+STATUS_LOCAL_BOOT_VALIDATED = 0x0020
 STATUS_V2_KNOWN_STATUS_FLAGS = (
-    STATUS_PREPARED | STATUS_PENDING_VERIFY | STATUS_ROLLBACK_SUPPORTED
-    | STATUS_TRUST_CONFIGURED | STATUS_PEER_COMPATIBLE
+    STATUS_ROLLBACK_SUPPORTED | STATUS_TRUST_CONFIGURED | STATUS_PEER_COMPATIBLE
     | STATUS_MAINTENANCE_EXCLUSIVE | STATUS_HEALTH_PASSED
     | STATUS_LOCAL_BOOT_VALIDATED
 )
 
-# State values from ``OtaProtocol.h``.  The right receiver reports
-# ``STATE_MAINTENANCE`` while its internal updater is logically idle but the
-# UART is held in the exclusive MKOT channel.  That is a valid post-confirm
-# state as long as the active generation and both health flags also match.
 STATE_IDLE = 0
-STATE_MAINTENANCE = 1
-STATE_RECEIVING = 2
-STATE_PREPARED = 3
-STATE_ACTIVATION_PENDING = 4
-STATE_PENDING_CONFIRM = 5
-STATE_CONFIRMED = 6
-STATE_FAULT = 7
+STATE_RECEIVING = 1
+STATE_PREPARED = 2
+STATE_PENDING_CONFIRM = 3
 
 # NackReason values from OtaProtocol.h.
 NACK_REASONS = {
@@ -189,14 +155,14 @@ SPEED_SWITCH = bytes((0xDE, 0xAD, 0x05, 0x00, 0xA5, 0x00, 0x09, 0x3D, 0x00))
 DEFAULT_UART_REQUEST_TIMEOUT = 5.0
 # Re-establish a text-frame boundary after opening the selected baud.  This is
 # deliberately harmless to the binary decoder.  It also clears any garbage
-# left in the firmware's legacy line buffer when a repeated invocation sent
+# left in the firmware's text line buffer when a repeated invocation sent
 # the 115200-baud switch sentinel to a board that was already running at 4 M.
 SERIAL_FRAME_BOUNDARY = b"\n"
 LEFT_PARTITION_SCHEMA_V1 = 0x4C010001
 RIGHT_PARTITION_SCHEMA_V1 = 0x52010001
 HARDWARE_REVISION_R1 = "makcm-s3-r1"
 LEFT_PROJECT_NAME = "makcm_left_idf"
-RIGHT_MANIFEST_PROJECT_NAME = "makcm_right_arduino"
+RIGHT_PROJECT_NAME = "makcm_right_idf"
 
 
 def _require_crypto() -> None:
@@ -337,10 +303,8 @@ EMBEDDED_IDENTITY_MAGIC = b"MKIMGV1\x00"
 EMBEDDED_IDENTITY_TRAILER = b"IDENDV1\x00"
 EMBEDDED_IDENTITY_SIZE = 116
 EMBEDDED_IDENTITY_VERSION = 1
-LEFT_DESCRIPTOR_PROJECT = "makcm_left_idf"
 LEFT_DESCRIPTOR_VERSION = "makcm-g{}"
-RIGHT_DESCRIPTOR_PROJECT = "arduino-lib-builder"
-RIGHT_DESCRIPTOR_IDF_PREFIX = "v4.4.7"
+RIGHT_DESCRIPTOR_IDF_VERSION = "v5.5.4"
 
 
 @dataclass(frozen=True)
@@ -466,16 +430,11 @@ def parse_embedded_identities(
 
 
 def validate_intrinsic_identity(
-    data: bytes, *, role: str, generation: int, label: str = "image"
+    data: bytes, *, role: str | int, generation: int, label: str = "image"
 ) -> AppDescriptor:
-    """Require role-specific descriptor identity before package signing.
+    """Require role-specific descriptor and embedded package identity."""
 
-    The right Arduino image currently has a fixed upstream descriptor and no
-    generation in that descriptor.  It must therefore carry an explicit
-    ``makcm-g<generation>`` marker elsewhere in the signed app bytes; absent
-    that marker package creation reports a hard production block.
-    """
-
+    role = _role_value(role)
     descriptor = parse_app_descriptor(data, label=label)
     identities = parse_embedded_identities(data, label=label)
     if len(identities) != 1:
@@ -485,14 +444,15 @@ def validate_intrinsic_identity(
         )
     identity = identities[0]
     expected_schema = (
-        LEFT_PARTITION_SCHEMA_V1 if role == "left" else RIGHT_PARTITION_SCHEMA_V1
+        LEFT_PARTITION_SCHEMA_V1
+        if role == TARGET_LEFT else RIGHT_PARTITION_SCHEMA_V1
     )
     expected_project = (
-        LEFT_PROJECT_NAME if role == "left" else RIGHT_MANIFEST_PROJECT_NAME
+        LEFT_PROJECT_NAME if role == TARGET_LEFT else RIGHT_PROJECT_NAME
     )
     expected_version = LEFT_DESCRIPTOR_VERSION.format(generation)
     if (
-        identity.role != (TARGET_LEFT if role == "left" else TARGET_RIGHT)
+        identity.role != role
         or identity.generation != generation
         or identity.partition_schema != expected_schema
         or identity.protocol_version != DEFAULT_PROTOCOL_VERSION
@@ -504,36 +464,43 @@ def validate_intrinsic_identity(
             f"{label} embedded identity does not exactly match role/generation/"
             "schema/protocol/hardware/project/app version"
         )
-    if role == "left":
-        expected_version = LEFT_DESCRIPTOR_VERSION.format(generation)
-        if descriptor.project_name != LEFT_DESCRIPTOR_PROJECT:
-            raise OtaToolError(
-                f"{label} intrinsic project {descriptor.project_name!r} != "
-                f"{LEFT_DESCRIPTOR_PROJECT!r}"
-            )
-        if descriptor.version != expected_version:
-            raise OtaToolError(
-                f"{label} intrinsic version {descriptor.version!r} does not "
-                f"prove generation {generation} (expected {expected_version!r})"
-            )
-    elif role == "right":
-        if descriptor.project_name != RIGHT_DESCRIPTOR_PROJECT:
-            raise OtaToolError(
-                f"{label} intrinsic project {descriptor.project_name!r} != "
-                f"{RIGHT_DESCRIPTOR_PROJECT!r}"
-            )
-        if not descriptor.idf_version.startswith(RIGHT_DESCRIPTOR_IDF_PREFIX):
+    if descriptor.project_name != expected_project:
+        raise OtaToolError(
+            f"{label} intrinsic project {descriptor.project_name!r} != "
+            f"{expected_project!r}"
+        )
+    if descriptor.version != expected_version:
+        raise OtaToolError(
+            f"{label} intrinsic version {descriptor.version!r} does not prove "
+            f"generation {generation} (expected {expected_version!r})"
+        )
+    if role == TARGET_RIGHT:
+        if descriptor.idf_version != RIGHT_DESCRIPTOR_IDF_VERSION:
             raise OtaToolError(
                 f"{label} intrinsic IDF {descriptor.idf_version!r} is not the "
-                f"supported {RIGHT_DESCRIPTOR_IDF_PREFIX} line"
+                f"required {RIGHT_DESCRIPTOR_IDF_VERSION}"
             )
-    else:
-        raise OtaToolError("role must be left or right")
     return descriptor
 
 
 def crc32(data: bytes) -> int:
     return zlib.crc32(data) & 0xFFFFFFFF
+
+
+def _valid_frame_flags(command: int, flags: int) -> bool:
+    """Return whether command/flags match the protocol's wire contract."""
+    if flags & ~KNOWN_FRAME_FLAGS:
+        return False
+    if command == CMD_DATA:
+        return (flags & ~(FLAG_FINAL | FLAG_RETRANSMIT)) == 0
+    if command == CMD_STATUS:
+        return flags in (FLAG_STATUS_V2,
+                         FLAG_STATUS_V2 | FLAG_RETRANSMIT)
+    if command in (CMD_ACK, CMD_NACK):
+        return flags == FLAG_RESPONSE
+    if command == CMD_STATUS_RESPONSE:
+        return flags == (FLAG_RESPONSE | FLAG_STATUS_V2)
+    return command in VALID_COMMANDS and flags in (0, FLAG_RETRANSMIT)
 
 
 def encode_frame(
@@ -548,7 +515,7 @@ def encode_frame(
 ) -> bytes:
     """Encode one MKOT v1 frame, matching ``OtaProtocol.h`` exactly."""
 
-    if target not in (TARGET_HOST, TARGET_LEFT, TARGET_RIGHT, TARGET_PAIR):
+    if target not in (TARGET_HOST, TARGET_LEFT, TARGET_RIGHT):
         raise OtaToolError("invalid frame target")
     if command not in VALID_COMMANDS:
         raise OtaToolError("invalid frame command")
@@ -562,10 +529,8 @@ def encode_frame(
         raise OtaToolError(f"frame payload exceeds {MAX_CHUNK_SIZE} bytes")
     if not 0 <= flags <= 0xFF:
         raise OtaToolError("flags must be uint8")
-    if flags & ~KNOWN_FRAME_FLAGS:
-        raise OtaToolError("frame contains unknown flag bits")
-    if flags & FLAG_STATUS_V2 and command not in (CMD_STATUS, CMD_STATUS_RESPONSE):
-        raise OtaToolError("Status V2 flag is valid only on STATUS frames")
+    if not _valid_frame_flags(command, flags):
+        raise OtaToolError("invalid flags for frame command")
     header = struct.pack(
         "<4sBBBBIIHHI",
         MAGIC,
@@ -594,8 +559,8 @@ class Frame:
 
 
 @dataclass(frozen=True)
-class StatusPayload:
-    """The fixed 24-byte ACK/NAK/status payload from OtaProtocol.h."""
+class CommandResponsePayload:
+    """The fixed 24-byte ACK/NACK command result from OtaProtocol.h."""
 
     state: int
     last_command: int
@@ -606,468 +571,199 @@ class StatusPayload:
     status_flags: int
 
 
-@dataclass(frozen=True)
-class StatusPayloadV2:
-    """The fixed 400-byte Status V2 payload from ``OtaStatusV2.h``.
+def decode_command_response_payload(payload: bytes) -> CommandResponsePayload:
+    """Decode the compact ACK/NACK result; Status uses StatusPayloadV2."""
 
-    All integer fields are decoded explicitly as little-endian values.  The
-    byte arrays are retained as immutable ``bytes`` so callers can compare an
-    observed board fact to the staged manifest without lossy formatting.
-    """
-
-    role: int
-    local_phase: int
-    state: int
-    last_command: int
-    last_response_command: int
-    last_ota_operation: int
-    completed_outcome: int
-    reason: int
-    protocol_epoch: int
-    status_flags: int
-    next_offset: int
-    record_transaction_id: int
-    completed_transaction_id: int
-    target_generation: int
-    active_generation: int
-    previous_generation: int
-    partition_schema: int
-    image_size: int
-    record_sequence: int
-    last_request_sequence: int
-    completed_terminal_sequence: int
-    reset_reason: int
-    last_ota_error: int
-    last_state_query_error: int
-    boot_attempt: int
-    evidence_flags: int
-    running_slot: int
-    boot_slot: int
-    target_slot: int
-    previous_slot: int
-    image_state: int
-    completed_terminal_command: int
-    record_crc32: int
-    image_sha256: bytes
-    completed_image_sha256: bytes
-    running_image_sha256: bytes
-    manifest_sha256: bytes
-    identity_digest: bytes
-    previous_image_sha256: bytes
-    app_elf_sha256: bytes
-    hardware_revision: str
-    project_name: str
-    app_version: str
-
-    @property
-    def active_present(self) -> bool:
-        return bool(self.evidence_flags & STATUS_V2_EVIDENCE_ACTIVE)
-
-    @property
-    def completed_present(self) -> bool:
-        return bool(self.evidence_flags & STATUS_V2_EVIDENCE_COMPLETED)
-
-    @property
-    def local_validated(self) -> bool:
-        return bool(self.evidence_flags & STATUS_V2_EVIDENCE_LOCAL_VALIDATED)
-
-    @property
-    def pair_committed(self) -> bool:
-        return bool(self.evidence_flags & STATUS_V2_EVIDENCE_PAIR_COMMITTED)
-
-    @property
-    def identity_valid(self) -> bool:
-        return bool(self.evidence_flags & STATUS_V2_EVIDENCE_IDENTITY_VALID)
-
-
-def _status_v2_text(wire: bytes, offset: int, capacity: int, label: str) -> str:
-    raw = wire[offset : offset + capacity]
-    end = raw.find(b"\x00")
-    if end <= 0 or any(raw[end + 1 :]):
-        raise OtaToolError(f"Status V2 {label} field is not canonical text")
-    try:
-        value = raw[:end].decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise OtaToolError(f"Status V2 {label} is not UTF-8") from exc
-    return value
-
-
-def _status_v2_u16(wire: bytes, offset: int) -> int:
-    return struct.unpack_from("<H", wire, offset)[0]
-
-
-def _status_v2_u32(wire: bytes, offset: int) -> int:
-    return struct.unpack_from("<I", wire, offset)[0]
-
-
-def decode_status_v2(payload: bytes) -> StatusPayloadV2:
-    """Decode and validate the exact Status V2 wire value.
-
-    The decoder deliberately rejects unknown/reserved bytes and all semantic
-    combinations that ``validStatusV2`` rejects in the shared C++ codec.  A
-    malformed V2 response is never downgraded to a V1 status by automatic
-    update paths.
-    """
-
-    if len(payload) != STATUS_V2_SIZE:
+    if len(payload) != COMMAND_RESPONSE_SIZE:
         raise OtaToolError(
-            f"OTA Status V2 payload must be exactly {STATUS_V2_SIZE} bytes"
+            f"OTA command response must be exactly {COMMAND_RESPONSE_SIZE} bytes"
         )
-    if payload[0] != STATUS_V2_VERSION or payload[82] != 0 or payload[83] != 0:
-        raise OtaToolError("invalid OTA Status V2 header/reserved bytes")
-    if any(payload[88:96]):
-        raise OtaToolError("invalid OTA Status V2 reserved bytes")
-    role = payload[1]
-    local_phase = payload[2]
-    state = payload[3]
-    last_command = payload[4]
-    last_response_command = payload[5]
-    completed_outcome = payload[7]
-    reason = _status_v2_u16(payload, 8)
-    protocol_epoch = _status_v2_u16(payload, 10)
-    status_flags = _status_v2_u32(payload, 12)
-    next_offset = _status_v2_u32(payload, 16)
-    record_transaction_id = _status_v2_u32(payload, 20)
-    completed_transaction_id = _status_v2_u32(payload, 24)
-    target_generation = _status_v2_u32(payload, 28)
-    active_generation = _status_v2_u32(payload, 32)
-    previous_generation = _status_v2_u32(payload, 36)
-    partition_schema = _status_v2_u32(payload, 40)
-    image_size = _status_v2_u32(payload, 44)
-    record_sequence = _status_v2_u32(payload, 48)
-    last_request_sequence = _status_v2_u32(payload, 52)
-    completed_terminal_sequence = _status_v2_u32(payload, 56)
-    reset_reason = _status_v2_u32(payload, 60)
-    last_ota_error = struct.unpack_from("<i", payload, 64)[0]
-    last_state_query_error = struct.unpack_from("<i", payload, 68)[0]
-    boot_attempt = _status_v2_u16(payload, 72)
-    evidence_flags = _status_v2_u16(payload, 74)
-    running_slot, boot_slot, target_slot, previous_slot = payload[76:80]
-    image_state = payload[80]
-    completed_terminal_command = payload[81]
-    record_crc32 = _status_v2_u32(payload, 84)
-    image_sha256 = bytes(payload[96:128])
-    completed_image_sha256 = bytes(payload[128:160])
-    running_image_sha256 = bytes(payload[160:192])
-    manifest_sha256 = bytes(payload[192:224])
-    identity_digest = bytes(payload[224:256])
-    previous_image_sha256 = bytes(payload[256:288])
-    app_elf_sha256 = bytes(payload[288:320])
-    hardware_revision = _status_v2_text(payload, 320, 16, "hardware_revision")
-    project_name = _status_v2_text(payload, 336, 32, "project_name")
-    app_version = _status_v2_text(payload, 368, 32, "app_version")
-
-    if role not in (TARGET_LEFT, TARGET_RIGHT):
-        raise OtaToolError("invalid Status V2 board role")
-    if local_phase > STATUS_V2_MAX_PHASE or state > STATE_FAULT:
-        raise OtaToolError("invalid Status V2 phase/state")
+    if (payload[0] != COMMAND_RESPONSE_VERSION or payload[3] != 0 or
+            any(payload[6:8])):
+        raise OtaToolError("invalid OTA command response header/reserved bytes")
+    state = payload[1]
+    last_command = payload[2]
+    reason = struct.unpack_from("<H", payload, 4)[0]
+    status_flags = struct.unpack_from("<I", payload, 20)[0]
+    if state not in (STATE_IDLE, STATE_RECEIVING, STATE_PREPARED,
+                     STATE_PENDING_CONFIRM):
+        raise OtaToolError("invalid OTA command response state")
     if last_command not in VALID_COMMANDS:
-        raise OtaToolError("invalid Status V2 last command")
-    if last_response_command not in (CMD_ACK, CMD_NACK, CMD_STATUS_RESPONSE):
-        raise OtaToolError("invalid Status V2 last response command")
-    if completed_outcome > STATUS_V2_MAX_OUTCOME or reason > 16:
-        raise OtaToolError("invalid Status V2 outcome/reason")
-    if protocol_epoch != STATUS_V2_PROTOCOL_EPOCH or record_sequence in (0, 0xFFFFFFFF):
-        raise OtaToolError("invalid Status V2 protocol/record sequence")
-    # Mirrors common/OtaStatusV2.h: a board that can answer is running an
-    # image, so it always knows its own generation.
-    if active_generation == 0:
-        raise OtaToolError("Status V2 active generation is missing")
+        raise OtaToolError("invalid OTA command response last command")
+    if reason > 16:
+        raise OtaToolError("invalid OTA command response reason")
     if status_flags & ~STATUS_V2_KNOWN_STATUS_FLAGS:
-        raise OtaToolError("unknown Status V2 status flag bits")
-    if evidence_flags & ~STATUS_V2_KNOWN_EVIDENCE:
-        raise OtaToolError("unknown Status V2 evidence flag bits")
-    if not (evidence_flags & STATUS_V2_EVIDENCE_SNAPSHOT_VALID):
-        raise OtaToolError("Status V2 snapshot-valid evidence is missing")
-    if not any(app_elf_sha256):
-        raise OtaToolError("Status V2 app ELF identity hash is missing")
-
-    active = bool(evidence_flags & STATUS_V2_EVIDENCE_ACTIVE)
-    completed = bool(evidence_flags & STATUS_V2_EVIDENCE_COMPLETED)
-    if active and (
-        record_transaction_id == 0
-        or local_phase in (0, 8)
-        or target_generation == 0
-        or previous_generation == 0
-        or partition_schema == 0
-        or image_size == 0
-        or last_request_sequence in (0, 0xFFFFFFFF)
-        or target_slot == 0xFF
-        or previous_slot == 0xFF
-        or target_slot == previous_slot
-        or not any(image_sha256)
-        or not any(manifest_sha256)
-        or not any(identity_digest)
-        or not any(previous_image_sha256)
-    ):
-        raise OtaToolError("Status V2 active evidence is incomplete")
-    if completed and (
-        completed_transaction_id == 0
-        or completed_terminal_sequence == 0
-        or completed_terminal_sequence == 0xFFFFFFFF
-        or completed_outcome == 0
-        or completed_terminal_command not in (CMD_CONFIRM, CMD_ABORT)
-        or ((completed_outcome == 1) != (completed_terminal_command == CMD_CONFIRM))
-        or not any(completed_image_sha256)
-    ):
-        raise OtaToolError("Status V2 completed evidence is incomplete")
-    if not active and (
-        record_transaction_id != 0 or last_request_sequence != 0 or local_phase != 0
-    ):
-        raise OtaToolError("Status V2 has active fields without active evidence")
-    if not completed and (
-        completed_transaction_id != 0
-        or completed_terminal_sequence != 0
-        or completed_outcome != 0
-        or completed_terminal_command != CMD_HELLO
-        or any(completed_image_sha256)
-    ):
-        raise OtaToolError("Status V2 has completed fields without tombstone evidence")
-    if evidence_flags & STATUS_V2_EVIDENCE_RUNNING_HASH_VALID and not any(running_image_sha256):
-        raise OtaToolError("Status V2 running hash evidence is empty")
-    if evidence_flags & STATUS_V2_EVIDENCE_IDENTITY_VALID and not any(identity_digest):
-        raise OtaToolError("Status V2 identity evidence is empty")
-
-    return StatusPayloadV2(
-        role=role, local_phase=local_phase, state=state,
-        last_command=last_command, last_response_command=last_response_command,
-        last_ota_operation=payload[6], completed_outcome=completed_outcome,
-        reason=reason, protocol_epoch=protocol_epoch, status_flags=status_flags,
-        next_offset=next_offset, record_transaction_id=record_transaction_id,
-        completed_transaction_id=completed_transaction_id,
-        target_generation=target_generation, active_generation=active_generation,
-        previous_generation=previous_generation, partition_schema=partition_schema,
-        image_size=image_size, record_sequence=record_sequence,
-        last_request_sequence=last_request_sequence,
-        completed_terminal_sequence=completed_terminal_sequence,
-        reset_reason=reset_reason, last_ota_error=last_ota_error,
-        last_state_query_error=last_state_query_error, boot_attempt=boot_attempt,
-        evidence_flags=evidence_flags, running_slot=running_slot, boot_slot=boot_slot,
-        target_slot=target_slot, previous_slot=previous_slot, image_state=image_state,
-        completed_terminal_command=completed_terminal_command,
-        record_crc32=record_crc32, image_sha256=image_sha256,
-        completed_image_sha256=completed_image_sha256,
-        running_image_sha256=running_image_sha256,
-        manifest_sha256=manifest_sha256, identity_digest=identity_digest,
-        previous_image_sha256=previous_image_sha256,
-        app_elf_sha256=app_elf_sha256, hardware_revision=hardware_revision,
-        project_name=project_name, app_version=app_version,
-    )
-
-
-def encode_status_v2(status: StatusPayloadV2) -> bytes:
-    """Encode a validated Status V2 value for golden vectors/mocks."""
-
-    wire = bytearray(STATUS_V2_SIZE)
-    wire[0] = STATUS_V2_VERSION
-    wire[1] = status.role
-    wire[2] = status.local_phase
-    wire[3] = status.state
-    wire[4] = status.last_command
-    wire[5] = status.last_response_command
-    wire[6] = status.last_ota_operation
-    wire[7] = status.completed_outcome
-    struct.pack_into("<H", wire, 8, status.reason)
-    struct.pack_into("<H", wire, 10, status.protocol_epoch)
-    for offset, value in (
-        (12, status.status_flags), (16, status.next_offset),
-        (20, status.record_transaction_id), (24, status.completed_transaction_id),
-        (28, status.target_generation), (32, status.active_generation),
-        (36, status.previous_generation), (40, status.partition_schema),
-        (44, status.image_size), (48, status.record_sequence),
-        (52, status.last_request_sequence), (56, status.completed_terminal_sequence),
-        (60, status.reset_reason), (84, status.record_crc32),
-    ):
-        struct.pack_into("<I", wire, offset, value & 0xFFFFFFFF)
-    struct.pack_into("<i", wire, 64, status.last_ota_error)
-    struct.pack_into("<i", wire, 68, status.last_state_query_error)
-    struct.pack_into("<H", wire, 72, status.boot_attempt)
-    struct.pack_into("<H", wire, 74, status.evidence_flags)
-    wire[76:81] = bytes((status.running_slot, status.boot_slot,
-                          status.target_slot, status.previous_slot,
-                          status.image_state))
-    wire[81] = status.completed_terminal_command
-    for offset, value in (
-        (96, status.image_sha256), (128, status.completed_image_sha256),
-        (160, status.running_image_sha256), (192, status.manifest_sha256),
-        (224, status.identity_digest), (256, status.previous_image_sha256),
-        (288, status.app_elf_sha256),
-    ):
-        if len(value) != 32:
-            raise OtaToolError("Status V2 digest must be exactly 32 bytes")
-        wire[offset : offset + 32] = value
-    for offset, value, capacity, label in (
-        (320, status.hardware_revision, 16, "hardware_revision"),
-        (336, status.project_name, 32, "project_name"),
-        (368, status.app_version, 32, "app_version"),
-    ):
-        encoded = value.encode("utf-8")
-        if not value or len(encoded) >= capacity:
-            raise OtaToolError(f"Status V2 {label} does not fit fixed field")
-        wire[offset : offset + len(encoded)] = encoded
-    # Decode performs the same semantic/reserved-byte validation as C++.
-    decode_status_v2(bytes(wire))
-    return bytes(wire)
-
-
-def decode_status_payload(payload: bytes) -> StatusPayload:
-    if len(payload) != 24:
-        raise OtaToolError("OTA status payload must be exactly 24 bytes")
-    version, state, last_command, reserved = struct.unpack_from("<BBBB", payload, 0)
-    reason, reserved2 = struct.unpack_from("<HH", payload, 4)
-    if version != WIRE_VERSION or reserved != 0 or reserved2 != 0:
-        raise OtaToolError("invalid OTA status payload header")
-    if state > 7 or last_command not in VALID_COMMANDS:
-        raise OtaToolError("invalid OTA status state/command")
-    next_offset, target_generation, active_generation, status_flags = struct.unpack_from(
-        "<IIII", payload, 8
-    )
-    return StatusPayload(
+        raise OtaToolError("unknown OTA command response status flag bits")
+    return CommandResponsePayload(
         state=state,
         last_command=last_command,
         reason=reason,
-        next_offset=next_offset,
-        target_generation=target_generation,
-        active_generation=active_generation,
+        next_offset=struct.unpack_from("<I", payload, 8)[0],
+        target_generation=struct.unpack_from("<I", payload, 12)[0],
+        active_generation=struct.unpack_from("<I", payload, 16)[0],
         status_flags=status_flags,
     )
 
 
-def status_v2_matches_active(
-    status: StatusPayloadV2, *, role: int, transaction_id: int,
-    generation: int, image_sha256: bytes | None = None,
-    manifest_sha256: bytes | None = None,
-) -> bool:
-    """Exact active-record predicate used by all automatic pair decisions."""
-
-    if status.role != role or not status.active_present or not status.identity_valid:
-        return False
-    if (
-        status.record_transaction_id != transaction_id
-        or status.target_generation != generation
-    ):
-        return False
-    if image_sha256 is not None and status.image_sha256 != image_sha256:
-        return False
-    if manifest_sha256 is not None and status.manifest_sha256 != manifest_sha256:
-        return False
-    return True
+def _command_response_semantics(
+    response_command: int, response: CommandResponsePayload
+) -> None:
+    if response_command not in (CMD_ACK, CMD_NACK):
+        raise OtaToolError("compact payload requires an ACK or NACK frame")
+    if (response_command == CMD_NACK) != (response.reason != 0):
+        raise OtaToolError("OTA ACK/NACK command and reason disagree")
 
 
-def status_v2_matches_completed(
-    status: StatusPayloadV2, *, role: int, transaction_id: int, generation: int,
-    image_sha256: bytes | None = None,
-    manifest_sha256: bytes | None = None,
-) -> bool:
-    """Exact completed-tombstone predicate; generation alone is insufficient."""
+@dataclass(frozen=True)
+class StatusPayloadV2:
+    """Strict 232-byte projection of ``common/OtaStatusV2.h``."""
 
-    if status.role != role or not status.completed_present:
-        return False
-    if status.completed_transaction_id != transaction_id:
-        return False
-    if status.target_generation != generation:
-        return False
-    if status.completed_outcome != 1 or status.completed_terminal_command != CMD_CONFIRM:
-        return False
-    if image_sha256 is not None and status.completed_image_sha256 != image_sha256:
-        return False
-    if manifest_sha256 is not None and status.manifest_sha256 != manifest_sha256:
-        return False
-    if not (status.evidence_flags & STATUS_V2_EVIDENCE_IDENTITY_VALID):
-        return False
-    # A completed identity carries the target generation in the active fields
-    # when retained, or in the board's current active generation after cleanup.
-    return status.active_generation == generation
+    role: int
+    state: int
+    last_command: int
+    last_response_command: int
+    reason: int
+    status_flags: int
+    next_offset: int
+    transaction_id: int
+    target_generation: int
+    running_generation: int
+    partition_schema: int
+    image_size: int
+    reset_reason: int
+    last_ota_error: int
+    last_state_query_error: int
+    running_slot: int
+    boot_slot: int
+    target_slot: int
+    image_state: int
+    target_image_sha256: bytes
+    running_image_sha256: bytes
+    manifest_sha256: bytes
+    hardware_revision: str
+    project_name: str
+    app_version: str
 
 
-def activation_disposition(
-    status: StatusPayloadV2, *, role: int, transaction_id: int, generation: int,
-    image_sha256: bytes, manifest_sha256: bytes,
-) -> str:
-    """Classify an exact pair member before ACTIVATE.
+def _status_text(payload: bytes, offset: int, capacity: int, label: str) -> str:
+    raw = payload[offset : offset + capacity]
+    end = raw.find(b"\x00")
+    if end <= 0 or any(raw[end + 1 :]):
+        raise OtaToolError(f"Status V2 {label} field is not canonical text")
+    try:
+        return raw[:end].decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise OtaToolError(f"Status V2 {label} is not UTF-8") from exc
 
-    ``status_v2_matches_active`` proves identity, not activation.  A Prepared
-    record is still active in the snapshot sense and must not be mistaken for
-    an already activated image.
-    """
 
-    if status_v2_matches_completed(
-        status,
-        role=role,
-        transaction_id=transaction_id,
-        generation=generation,
-        image_sha256=image_sha256,
-        manifest_sha256=manifest_sha256,
-    ):
-        return "completed"
-    if not status_v2_matches_active(
-        status,
-        role=role,
-        transaction_id=transaction_id,
-        generation=generation,
-        image_sha256=image_sha256,
-        manifest_sha256=manifest_sha256,
-    ):
-        raise OtaToolError("board lacks exact Status V2 activation identity")
-    if status.state == STATE_PREPARED:
-        return "activate"
-    if status.state in (
-        STATE_ACTIVATION_PENDING, STATE_PENDING_CONFIRM, STATE_CONFIRMED,
-    ):
-        return "already_activated"
-    raise OtaToolError(
-        f"exact board identity is in non-activatable state {status.state}"
+def _status_semantics(status: StatusPayloadV2) -> None:
+    if status.role not in (TARGET_LEFT, TARGET_RIGHT):
+        raise OtaToolError("invalid Status V2 board role")
+    if status.state not in (STATE_IDLE, STATE_RECEIVING, STATE_PREPARED,
+                            STATE_PENDING_CONFIRM):
+        raise OtaToolError("invalid Status V2 state")
+    if status.last_command not in VALID_COMMANDS:
+        raise OtaToolError("invalid Status V2 last command")
+    if status.last_response_command not in (CMD_ACK, CMD_NACK,
+                                             CMD_STATUS_RESPONSE):
+        raise OtaToolError("invalid Status V2 response command")
+    if not 0 <= status.reason <= 16:
+        raise OtaToolError("invalid Status V2 reason")
+    if (status.last_response_command == CMD_NACK) != (status.reason != 0):
+        raise OtaToolError("Status V2 response/reason disagree")
+    if status.status_flags & ~STATUS_V2_KNOWN_STATUS_FLAGS:
+        raise OtaToolError("unknown Status V2 status flag bits")
+    if status.running_generation == 0 or status.partition_schema == 0:
+        raise OtaToolError("Status V2 running identity is incomplete")
+    if not any(status.running_image_sha256):
+        raise OtaToolError("Status V2 running image hash is empty")
+    if status.last_state_query_error == 0:
+        if status.running_slot == 0xFF or status.boot_slot == 0xFF or \
+                status.image_state > 5:
+            raise OtaToolError("Status V2 partition state is incomplete")
+    elif (status.running_slot != 0xFF or status.boot_slot != 0xFF or
+          status.image_state != 0xFF):
+        raise OtaToolError("Status V2 failed partition query has stale facts")
+    transient = status.state in (STATE_RECEIVING, STATE_PREPARED)
+    if transient:
+        if (status.transaction_id == 0 or status.target_generation == 0 or
+                status.image_size == 0 or status.next_offset > status.image_size or
+                status.target_slot == 0xFF or
+                not any(status.target_image_sha256) or
+                not any(status.manifest_sha256)):
+            raise OtaToolError("Status V2 transaction identity is incomplete")
+        if status.state == STATE_PREPARED and \
+                status.next_offset != status.image_size:
+            raise OtaToolError("prepared Status V2 has incomplete image")
+    elif (status.transaction_id != 0 or status.target_generation != 0 or
+          status.image_size != 0 or status.next_offset != 0 or
+          status.target_slot != 0xFF or any(status.target_image_sha256) or
+          any(status.manifest_sha256)):
+        raise OtaToolError("non-transient Status V2 carries transaction facts")
+
+
+def decode_status_v2(payload: bytes) -> StatusPayloadV2:
+    if len(payload) != STATUS_V2_SIZE:
+        raise OtaToolError(
+            f"OTA Status V2 payload must be exactly {STATUS_V2_SIZE} bytes"
+        )
+    if payload[0] != STATUS_V2_VERSION or any(payload[9:12]) or any(payload[14:16]):
+        raise OtaToolError("invalid OTA Status V2 header/reserved bytes")
+    status = StatusPayloadV2(
+        role=payload[1], state=payload[2], last_command=payload[3],
+        last_response_command=payload[4], running_slot=payload[5],
+        boot_slot=payload[6], target_slot=payload[7], image_state=payload[8],
+        reason=struct.unpack_from("<H", payload, 12)[0],
+        status_flags=struct.unpack_from("<I", payload, 16)[0],
+        next_offset=struct.unpack_from("<I", payload, 20)[0],
+        transaction_id=struct.unpack_from("<I", payload, 24)[0],
+        target_generation=struct.unpack_from("<I", payload, 28)[0],
+        running_generation=struct.unpack_from("<I", payload, 32)[0],
+        partition_schema=struct.unpack_from("<I", payload, 36)[0],
+        image_size=struct.unpack_from("<I", payload, 40)[0],
+        reset_reason=struct.unpack_from("<I", payload, 44)[0],
+        last_ota_error=struct.unpack_from("<i", payload, 48)[0],
+        last_state_query_error=struct.unpack_from("<i", payload, 52)[0],
+        target_image_sha256=bytes(payload[56:88]),
+        running_image_sha256=bytes(payload[88:120]),
+        manifest_sha256=bytes(payload[120:152]),
+        hardware_revision=_status_text(payload, 152, 16, "hardware_revision"),
+        project_name=_status_text(payload, 168, 32, "project_name"),
+        app_version=_status_text(payload, 200, 32, "app_version"),
     )
+    _status_semantics(status)
+    return status
 
 
-def _status_v2_summary(status: StatusPayloadV2) -> dict[str, Any]:
-    """JSON-safe complete fact included in pair command results/journals."""
+def encode_status_v2(status: StatusPayloadV2) -> bytes:
+    _status_semantics(status)
+    wire = bytearray(STATUS_V2_SIZE)
+    wire[0:9] = bytes((
+        STATUS_V2_VERSION, status.role, status.state, status.last_command,
+        status.last_response_command, status.running_slot, status.boot_slot,
+        status.target_slot, status.image_state,
+    ))
+    struct.pack_into("<H", wire, 12, status.reason)
+    for offset, value in (
+        (16, status.status_flags), (20, status.next_offset),
+        (24, status.transaction_id), (28, status.target_generation),
+        (32, status.running_generation), (36, status.partition_schema),
+        (40, status.image_size), (44, status.reset_reason),
+    ):
+        struct.pack_into("<I", wire, offset, value)
+    struct.pack_into("<i", wire, 48, status.last_ota_error)
+    struct.pack_into("<i", wire, 52, status.last_state_query_error)
+    wire[56:88] = _hex_bytes(status.target_image_sha256, 32,
+                             "target_image_sha256")
+    wire[88:120] = _hex_bytes(status.running_image_sha256, 32,
+                              "running_image_sha256")
+    wire[120:152] = _hex_bytes(status.manifest_sha256, 32, "manifest_sha256")
+    wire[152:168] = _fixed_text(status.hardware_revision, 16,
+                                "hardware_revision")
+    wire[168:200] = _fixed_text(status.project_name, 32, "project_name")
+    wire[200:232] = _fixed_text(status.app_version, 32, "app_version")
+    return bytes(wire)
 
-    return {
-        "version": STATUS_V2_VERSION,
-        "role": status.role,
-        "local_phase": status.local_phase,
-        "state": status.state,
-        "last_command": status.last_command,
-        "last_response_command": status.last_response_command,
-        "last_ota_operation": status.last_ota_operation,
-        "completed_outcome": status.completed_outcome,
-        "reason": status.reason,
-        "protocol_epoch": status.protocol_epoch,
-        "record_transaction_id": status.record_transaction_id,
-        "completed_transaction_id": status.completed_transaction_id,
-        "target_generation": status.target_generation,
-        "active_generation": status.active_generation,
-        "previous_generation": status.previous_generation,
-        "partition_schema": status.partition_schema,
-        "image_size": status.image_size,
-        "target_slot": status.target_slot,
-        "previous_slot": status.previous_slot,
-        "running_slot": status.running_slot,
-        "boot_slot": status.boot_slot,
-        "image_state": status.image_state,
-        "record_sequence": status.record_sequence,
-        "last_request_sequence": status.last_request_sequence,
-        "completed_terminal_sequence": status.completed_terminal_sequence,
-        "completed_terminal_command": status.completed_terminal_command,
-        "reset_reason": status.reset_reason,
-        "last_ota_error": status.last_ota_error,
-        "last_state_query_error": status.last_state_query_error,
-        "boot_attempt": status.boot_attempt,
-        "evidence_flags": status.evidence_flags,
-        "status_flags": status.status_flags,
-        "record_crc32": status.record_crc32,
-        "image_sha256": status.image_sha256.hex(),
-        "completed_image_sha256": status.completed_image_sha256.hex(),
-        "running_image_sha256": status.running_image_sha256.hex(),
-        "manifest_sha256": status.manifest_sha256.hex(),
-        "identity_digest": status.identity_digest.hex(),
-        "previous_image_sha256": status.previous_image_sha256.hex(),
-        "app_elf_sha256": status.app_elf_sha256.hex(),
-        "hardware_revision": status.hardware_revision,
-        "project_name": status.project_name,
-        "app_version": status.app_version,
-    }
 
 
 def decode_frame(wire: bytes) -> Frame:
@@ -1087,16 +783,14 @@ def decode_frame(wire: bytes) -> Frame:
         reserved,
         sequence,
     ) = struct.unpack_from("<4sBBBBIIHHI", wire, 0)
-    if target not in (TARGET_HOST, TARGET_LEFT, TARGET_RIGHT, TARGET_PAIR):
+    if target not in (TARGET_HOST, TARGET_LEFT, TARGET_RIGHT):
         raise OtaToolError("invalid frame target")
     if command not in VALID_COMMANDS:
         raise OtaToolError("invalid frame command")
     if transaction_id == 0 or sequence in (0, 0xFFFFFFFF) or reserved != 0:
         raise OtaToolError("invalid frame transaction/reserved fields")
-    if flags & ~KNOWN_FRAME_FLAGS:
-        raise OtaToolError("frame contains unknown flag bits")
-    if flags & FLAG_STATUS_V2 and command not in (CMD_STATUS, CMD_STATUS_RESPONSE):
-        raise OtaToolError("Status V2 flag is valid only on STATUS frames")
+    if not _valid_frame_flags(command, flags):
+        raise OtaToolError("invalid flags for frame command")
     expected_len = HEADER_SIZE + length + CRC_SIZE
     if length > MAX_CHUNK_SIZE or len(wire) != expected_len:
         raise OtaToolError("invalid frame payload length")
@@ -1645,8 +1339,9 @@ class SerialTransport:
 
 
 class OtaNack(OtaToolError):
-    def __init__(self, frame: Frame, status: StatusPayload | None = None):
-        status = status or decode_status_payload(frame.payload)
+    def __init__(self, frame: Frame,
+                 status: CommandResponsePayload | None = None):
+        status = status or decode_command_response_payload(frame.payload)
         reason = status.reason
         self.reason = reason
         self.status = status
@@ -1655,21 +1350,14 @@ class OtaNack(OtaToolError):
 
 
 class OtaClient:
-    """Reliable request/response client over an exclusive maintenance UART."""
+    """Reliable in-process request client for one board transaction."""
 
-    def __init__(
-        self,
-        transport: Transport,
-        *,
-        target: int,
-        transaction_id: int | None = None,
-        timeout: float = 1.0,
-        retries: int = 3,
-    ) -> None:
+    def __init__(self, transport: Transport, *, target: int,
+                 transaction_id: int | None = None, timeout: float = 1.0,
+                 retries: int = 3) -> None:
         if target not in (TARGET_LEFT, TARGET_RIGHT):
             raise OtaToolError("OTA client target must be left or right")
-        if transaction_id is None:
-            transaction_id = secrets.randbelow(0xFFFFFFFF) or 1
+        transaction_id = transaction_id or (secrets.randbelow(0xFFFFFFFF) or 1)
         if not 0 < transaction_id <= 0xFFFFFFFF:
             raise OtaToolError("transaction_id must be non-zero uint32")
         if timeout <= 0 or retries < 0:
@@ -1681,129 +1369,82 @@ class OtaClient:
         self.retries = retries
         self._sequence = 0
         self._decoder = FrameDecoder()
-        # Set by prepare() after the signed manifest is decoded.  These are
-        # required to prove that a read-only STATUS belongs to this exact
-        # transaction before any best-effort pre-activation Abort is sent.
-        self._expected_image_sha256: bytes | None = None
-        self._expected_manifest_sha256: bytes | None = None
 
-    def _read_response(
-        self, *, expected_sequence: int, expected_command: int,
-        require_status_v2: bool = False,
-    ) -> Frame:
+    def _read_response(self, *, sequence: int, command: int,
+                       detailed: bool) -> Frame:
         deadline = time.monotonic() + self.timeout
         while time.monotonic() < deadline:
-            chunk = self.transport.read(256)
-            if not chunk:
-                continue
-            for frame in self._decoder.feed(chunk):
-                if frame.transaction_id != self.transaction_id:
+            for frame in self._decoder.feed(self.transport.read(256)):
+                if (frame.transaction_id != self.transaction_id or
+                        frame.target not in (self.target, TARGET_HOST) or
+                        frame.sequence != sequence or
+                        not (frame.flags & FLAG_RESPONSE) or
+                        frame.flags & ~(FLAG_RESPONSE | FLAG_STATUS_V2) or
+                        frame.command not in (CMD_ACK, CMD_NACK,
+                                              CMD_STATUS_RESPONSE)):
                     continue
-                if frame.target not in (self.target, TARGET_HOST):
-                    continue
-                if frame.sequence != expected_sequence:
-                    continue
-                if not (frame.flags & FLAG_RESPONSE):
-                    continue
-                if frame.flags & ~(FLAG_RESPONSE | FLAG_STATUS_V2):
-                    continue
-                if frame.command not in (CMD_ACK, CMD_NACK, CMD_STATUS_RESPONSE):
-                    continue
-                if require_status_v2 and not (frame.flags & FLAG_STATUS_V2):
-                    # A correlated V1 NACK here is the bridge refusing this
-                    # exact request (Busy / NotInMaintenance / ...).  Skipping
-                    # it turns every refusal into a blind timeout.
-                    if frame.command == CMD_NACK:
+                if detailed != bool(frame.flags & FLAG_STATUS_V2):
+                    if frame.command == CMD_NACK and \
+                            not (frame.flags & FLAG_STATUS_V2):
                         try:
-                            nack_status = decode_status_payload(frame.payload)
+                            status = decode_command_response_payload(frame.payload)
+                            _command_response_semantics(frame.command, status)
                         except OtaToolError:
                             continue
-                        if nack_status.last_command != expected_command:
-                            continue
-                        raise OtaNack(frame, nack_status)
-                    continue
-                if not require_status_v2 and (frame.flags & FLAG_STATUS_V2):
+                        if status.last_command == command:
+                            raise OtaNack(frame, status)
                     continue
                 try:
-                    if require_status_v2:
-                        status_v2 = decode_status_v2(frame.payload)
-                        if status_v2.last_response_command != frame.command:
-                            continue
-                        last_command = status_v2.last_command
+                    if detailed:
+                        observed = decode_status_v2(frame.payload).last_command
                     else:
-                        status = decode_status_payload(frame.payload)
-                        last_command = status.last_command
+                        compact = decode_command_response_payload(frame.payload)
+                        _command_response_semantics(frame.command, compact)
+                        observed = compact.last_command
                 except OtaToolError:
                     continue
-                if last_command != expected_command:
-                    continue
-                return frame
+                if observed == command:
+                    return frame
         raise OtaToolError("timed out waiting for OTA response")
 
-    def request(
-        self,
-        command: int,
-        *,
-        payload: bytes = b"",
-        offset: int = 0,
-        flags: int = 0,
-        expected: tuple[int, ...] = (CMD_ACK, CMD_STATUS_RESPONSE),
-        retries: int | None = None,
-        require_status_v2: bool = False,
-    ) -> Frame:
-        if retries is None:
-            retries = self.retries
+    def request(self, command: int, *, payload: bytes = b"", offset: int = 0,
+                flags: int = 0, expected: tuple[int, ...] = (CMD_ACK,),
+                retries: int | None = None, detailed: bool = False) -> Frame:
+        retries = self.retries if retries is None else retries
         if self._sequence >= 0xFFFFFFFE:
-            raise OtaToolError(
-                "request sequence exhausted before reserved boundary; start a new transaction"
-            )
+            raise OtaToolError("request sequence exhausted")
         self._sequence += 1
         sequence = self._sequence
         for attempt in range(retries + 1):
-            attempt_flags = flags | (FLAG_RETRANSMIT if attempt else 0)
             wire = encode_frame(
-                target=self.target,
-                command=command,
-                transaction_id=self.transaction_id,
-                offset=offset,
-                sequence=sequence,
-                payload=payload,
-                flags=attempt_flags,
+                target=self.target, command=command,
+                transaction_id=self.transaction_id, offset=offset,
+                sequence=sequence, payload=payload,
+                flags=flags | (FLAG_RETRANSMIT if attempt else 0),
             )
             try:
                 written = self.transport.write(wire)
                 if written is not None and written != len(wire):
-                    raise OtaToolError(
-                        f"short serial write {written}/{len(wire)} bytes"
-                    )
+                    raise OtaToolError(f"short serial write {written}/{len(wire)} bytes")
                 frame = self._read_response(
-                    expected_sequence=sequence,
-                    expected_command=command,
-                    require_status_v2=require_status_v2,
+                    sequence=sequence, command=command, detailed=detailed
                 )
             except (OtaToolError, OSError):
-                if attempt >= retries:
+                if attempt == retries:
                     raise
                 continue
-            if frame.command not in (CMD_ACK, CMD_NACK, CMD_STATUS_RESPONSE):
-                raise OtaToolError("unsupported OTA response command")
-            # Status V2 is required for automatic STATUS/reconciliation.  ACK
-            # responses to state-changing commands remain the compact V1
-            # response; callers must issue an exact V2 STATUS before acting on
-            # the board fact.
-            status_next_offset = (
-                decode_status_v2(frame.payload).next_offset
-                if require_status_v2 else decode_status_payload(frame.payload).next_offset
-            )
-            if frame.offset != status_next_offset:
+            if detailed:
+                next_offset = decode_status_v2(frame.payload).next_offset
+            else:
+                status = decode_command_response_payload(frame.payload)
+                _command_response_semantics(frame.command, status)
+                next_offset = status.next_offset
+                if frame.command == CMD_NACK:
+                    raise OtaNack(frame, status)
+            if frame.offset != next_offset:
                 raise OtaToolError(
-                    "OTA response frame.offset disagrees with "
-                    "status next_offset"
+                    "OTA response frame.offset disagrees with status next_offset"
                 )
-            if frame.command == CMD_NACK:
-                if require_status_v2:
-                    raise OtaToolError("Status V2 NACK is not valid for automatic status")
-                raise OtaNack(frame, decode_status_payload(frame.payload))
             if frame.command not in expected:
                 raise OtaToolError(
                     f"unexpected OTA response command 0x{frame.command:02x}"
@@ -1817,6 +1458,19 @@ class OtaClient:
     def enter_maintenance(self) -> Frame:
         return self.request(CMD_ENTER_MAINTENANCE)
 
+    def status(self) -> StatusPayloadV2:
+        frame = self.request(
+            CMD_STATUS, flags=FLAG_STATUS_V2,
+            expected=(CMD_STATUS_RESPONSE,), detailed=True,
+        )
+        return decode_status_v2(frame.payload)
+
+    def abort(self) -> Frame:
+        return self.request(CMD_ABORT)
+
+    def exit_maintenance(self) -> Frame:
+        return self.request(CMD_EXIT_MAINTENANCE)
+
     def send_manifest(self, manifest: Manifest) -> Frame:
         if manifest.role != self.target:
             raise OtaToolError("package role does not match selected OTA target")
@@ -1825,68 +1479,15 @@ class OtaClient:
     def send_data(self, image: bytes, *, manifest: Manifest) -> int:
         if manifest.image_size != len(image) or manifest.image_sha256 != _sha256(image):
             raise OtaToolError("image does not match manifest")
-        chunk_size = manifest.chunk_size
         offset = 0
-        resume_recoveries = 0
-        max_resume_recoveries = max(1, self.retries + 1)
         while offset < len(image):
-            chunk = image[offset : offset + chunk_size]
-            final = offset + len(chunk) == len(image)
-            try:
-                frame = self.request(
-                    CMD_DATA,
-                    payload=chunk,
-                    offset=offset,
-                    flags=FLAG_FINAL if final else 0,
-                )
-            except OtaNack as exc:
-                # A reconnect/resume or an idempotent duplicate can report the
-                # receiver's next offset.  Never guess from local state: only
-                # accept a bounded, forward-compatible offset from the frame.
-                if exc.reason != 9:  # NackReason::WrongOffset
-                    raise
-                try:
-                    # A WrongOffset response is intentionally not trusted for
-                    # its echoed request offset.  Query STATUS V2 for the
-                    # durable next offset; if that evidence is unavailable,
-                    # stop rather than guessing from a response envelope.
-                    status_frame = self.status()
-                    status_v2 = decode_status_v2(status_frame.payload)
-                    if not status_v2_matches_active(
-                        status_v2,
-                        role=self.target,
-                        transaction_id=self.transaction_id,
-                        generation=manifest.generation,
-                        image_sha256=manifest.image_sha256,
-                        manifest_sha256=_sha256(manifest.wire),
-                    ):
-                        raise OtaToolError(
-                            "receiver Status V2 does not identify this exact image"
-                        )
-                    resume = status_v2.next_offset
-                except OtaToolError as status_error:
-                    raise OtaToolError(
-                        "cannot resume DATA without durable Status V2 next_offset"
-                    ) from status_error
-                if not 0 <= resume <= len(image):
-                    raise OtaToolError("receiver returned an invalid resume offset")
-                if resume != len(image) and resume % chunk_size != 0:
-                    raise OtaToolError(
-                        "receiver returned an unaligned resume offset"
-                    )
-                if resume <= offset:
-                    raise OtaToolError(
-                        "receiver made no forward DATA resume progress"
-                    )
-                resume_recoveries += 1
-                if resume_recoveries > max_resume_recoveries:
-                    raise OtaToolError(
-                        "receiver exceeded the bounded DATA resume budget"
-                    )
-                offset = resume
-                continue
-            # Receiver returns the next expected offset in the frame offset.
-            accepted = decode_status_payload(frame.payload).next_offset
+            chunk = image[offset : offset + manifest.chunk_size]
+            frame = self.request(
+                CMD_DATA, payload=chunk, offset=offset,
+                flags=FLAG_FINAL if offset + len(chunk) == len(image) else 0,
+            )
+            accepted = decode_command_response_payload(
+                frame.payload).next_offset
             expected = offset + len(chunk)
             if accepted != expected:
                 raise OtaToolError(
@@ -1895,332 +1496,269 @@ class OtaClient:
             offset = accepted
         return offset
 
-    def prepare(
-        self,
-        package: bytes,
-        *,
-        allow_ota: bool = False,
-        expected_package_sha256: str | None = None,
-    ) -> dict[str, Any]:
-        if not allow_ota:
-            raise OtaToolError("prepare requires explicit --allow-ota authorization")
+    def prepare(self, package: bytes) -> dict[str, Any]:
         manifest = decode_manifest(package[:MANIFEST_SIZE])
         image = package[MANIFEST_SIZE:]
         info = package_info(package, manifest=manifest)
-        self._expected_image_sha256 = manifest.image_sha256
-        self._expected_manifest_sha256 = _sha256(manifest.wire)
-        if expected_package_sha256 is not None:
-            expected = expected_package_sha256.lower()
-            if len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
-                raise OtaToolError("expected package SHA-256 must be 64 hexadecimal characters")
-            if info["package_sha256"] != expected:
-                raise OtaToolError("package SHA-256 does not match explicit expected hash")
+        if self.target == TARGET_LEFT:
+            self.hello()
+        self.enter_maintenance()
+        self.send_manifest(manifest)
+        self.send_data(image, manifest=manifest)
+        self.request(CMD_PREPARE)
+        return info
+
+    def activate(self) -> Frame:
+        return self.request(CMD_ACTIVATE)
+
+    def confirm(self) -> Frame:
+        return self.request(CMD_CONFIRM)
+
+
+def _package_bytes(package: bytes, role: int) -> tuple[Manifest, bytes, bytes]:
+    if not isinstance(package, bytes) or len(package) <= MANIFEST_SIZE:
+        raise OtaToolError("OTA package must contain a manifest and image")
+    manifest = decode_manifest(package[:MANIFEST_SIZE])
+    package_info(package, manifest=manifest)
+    if manifest.role != role:
+        raise OtaToolError(f"{role_name(role)} package has the wrong role")
+    validate_intrinsic_identity(
+        package[MANIFEST_SIZE:], role=role, generation=manifest.generation,
+        label=f"{role_name(role)} package image",
+    )
+    return manifest, manifest.image_sha256, _sha256(manifest.wire)
+
+
+def _current_and_healthy(status: StatusPayloadV2, manifest: Manifest) -> bool:
+    health = STATUS_PEER_COMPATIBLE | STATUS_HEALTH_PASSED | \
+        STATUS_LOCAL_BOOT_VALIDATED
+    return (status.role == manifest.role and status.state == STATE_IDLE and
+            status.running_generation == manifest.generation and
+            status.running_image_sha256 == manifest.image_sha256 and
+            status.partition_schema == manifest.partition_schema and
+            status.hardware_revision == manifest.hardware_revision and
+            status.project_name == manifest.project_name and
+            (status.status_flags & health) == health)
+
+
+def _pending_image_exact(status: StatusPayloadV2, manifest: Manifest) -> bool:
+    return (status.role == manifest.role and
+            status.state == STATE_PENDING_CONFIRM and
+            status.running_generation == manifest.generation and
+            status.running_image_sha256 == manifest.image_sha256 and
+            status.partition_schema == manifest.partition_schema and
+            status.hardware_revision == manifest.hardware_revision and
+            status.project_name == manifest.project_name)
+
+
+def _pending_exact(status: StatusPayloadV2, manifest: Manifest) -> bool:
+    health = STATUS_PEER_COMPATIBLE | STATUS_HEALTH_PASSED | \
+        STATUS_LOCAL_BOOT_VALIDATED
+    return (_pending_image_exact(status, manifest) and
+            (status.status_flags & health) == health)
+
+
+def _prepared_exact(status: StatusPayloadV2, manifest: Manifest,
+                    transaction_id: int) -> bool:
+    return (status.role == manifest.role and status.state == STATE_PREPARED and
+            status.transaction_id == transaction_id and
+            status.target_generation == manifest.generation and
+            status.target_image_sha256 == manifest.image_sha256 and
+            status.manifest_sha256 == _sha256(manifest.wire) and
+            status.next_offset == manifest.image_size and
+            status.partition_schema == manifest.partition_schema and
+            status.hardware_revision == manifest.hardware_revision and
+            status.project_name == manifest.project_name)
+
+
+def _wait_status(client: OtaClient, predicate: Any, *, timeout: float,
+                 label: str) -> StatusPayloadV2:
+    deadline = time.monotonic() + timeout
+    last: StatusPayloadV2 | None = None
+    while time.monotonic() < deadline:
         try:
-            # A right-board HELLO is not a harmless discovery request: the
-            # left proxy must first bootstrap the right board's exclusive
-            # UART1 maintenance channel.  Sending HELLO and then ENTER caused
-            # two bootstrap-sensitive round trips during the one-time legacy
-            # migration; if the first OTA_READY text response was lost, the
-            # old receiver remained in maintenance and rejected ENTER as
-            # Busy.  ENTER already returns the common status payload, so make
-            # it the first and only bootstrap request for the right target.
-            # Keep the left HELLO for its local preflight, where it does not
-            # cross the inter-board maintenance boundary.
-            if self.target == TARGET_LEFT:
-                self.hello()
-            self.enter_maintenance()
-            self.send_manifest(manifest)
-            self.send_data(image, manifest=manifest)
-            self.request(CMD_PREPARE)
-            return info
-        except Exception as exc:
-            self.safe_abort_pre_activation()
-            raise exc
+            last = client.status()
+            if predicate(last):
+                return last
+        except (OtaToolError, OSError):
+            pass
+        time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+    detail = "no status" if last is None else f"state={last.state}"
+    raise OtaToolError(f"timed out waiting for {label}: {detail}")
 
-    def status(self, *, v2: bool = True) -> Frame:
-        """Read board facts; V2 is mandatory unless explicitly diagnostic."""
-        if v2:
-            frame = self.request(
-                CMD_STATUS,
-                flags=FLAG_STATUS_V2,
-                expected=(CMD_STATUS_RESPONSE,),
-                require_status_v2=True,
-            )
-            status = decode_status_v2(frame.payload)
-            # A new CLI process starts its volatile counter at zero, while the
-            # board retains the last durable state-changing sequence.  Adopt
-            # that watermark after the exact Status V2 response so ACTIVATE,
-            # CONFIRM or ABORT cannot be rejected as a stale sequence.
-            durable_sequence = 0
-            if (
-                status.active_present
-                and status.record_transaction_id == self.transaction_id
-            ):
-                durable_sequence = status.last_request_sequence
-            elif (
-                status.completed_present
-                and status.completed_transaction_id == self.transaction_id
-            ):
-                durable_sequence = status.completed_terminal_sequence
-            if durable_sequence in (0xFFFFFFFF,):
-                raise OtaToolError("board reports a reserved durable sequence")
-            self._sequence = max(self._sequence, durable_sequence)
-            return frame
-        return self.request(CMD_STATUS, expected=(CMD_STATUS_RESPONSE, CMD_ACK))
 
-    def safe_status(self) -> Frame | None:
-        try:
-            return self.status()
-        except Exception:
-            return None
-
-    def safe_abort_pre_activation(self) -> Frame | None:
-        """Abort only when an exact status proves boot selection is untouched.
-
-        A lost PREPARE/ACTIVATE response is ambiguous.  Never convert a
-        timeout into an unconditional rollback or evidence erase.
-        """
-        if self._expected_image_sha256 is None or self._expected_manifest_sha256 is None:
-            # No signed package identity has been established in this client;
-            # a status-only response is never enough to authorize Abort.
-            return None
-        frame = self.safe_status()
-        if frame is None:
-            return None
-        try:
-            status = decode_status_v2(frame.payload)
-        except OtaToolError:
-            return None
-        if (
-            status.record_transaction_id != self.transaction_id
-            or not status.active_present
-            or status.image_sha256 != self._expected_image_sha256
-            or status.manifest_sha256 != self._expected_manifest_sha256
-        ):
-            return None
-        if status.state not in (
-            STATE_MAINTENANCE,
-            STATE_RECEIVING,
-        ):
-            return None
-        if status.status_flags & STATUS_PENDING_VERIFY:
-            return None
-        return self.safe_abort()
-
-    def wait_peer_confirmation(
-        self,
-        *,
-        expected_generation: int,
-        expected_image_sha256: bytes | None = None,
-        expected_manifest_sha256: bytes | None = None,
-        timeout: float = 3.0,
-        poll_interval: float = 0.1,
-    ) -> StatusPayload:
-        """Wait for an explicit receiver assertion that its peer is healthy.
-
-        A successful status response alone is not enough after the right board
-        reboots: the current protocol only conveys peer health through
-        ``kStatusPeerCompatible`` and ``kStatusHealthPassed``. Missing or
-        malformed evidence fails closed and callers must not activate left.
-        """
-
-        expected_generation = _u32(expected_generation, "expected_generation", minimum=1)
-        if timeout <= 0 or poll_interval <= 0:
-            raise OtaToolError("peer confirmation timeout/poll interval must be positive")
-        deadline = time.monotonic() + timeout
-        last_error = "missing peer confirmation"
-        while time.monotonic() < deadline:
+def _confirm_until_healthy(client: OtaClient, manifest: Manifest, *,
+                           timeout: float, label: str,
+                           initial: StatusPayloadV2 | None = None
+                           ) -> StatusPayloadV2:
+    """Drive PendingConfirm to healthy Idle using observed board facts."""
+    deadline = time.monotonic() + timeout
+    last = initial
+    last_observed = initial
+    while time.monotonic() < deadline:
+        if last is None:
             try:
-                frame = self.status()
-                status = decode_status_v2(frame.payload)
-                if status.active_generation != expected_generation:
-                    last_error = (
-                        "missing peer confirmation: active generation "
-                        f"{status.active_generation} != {expected_generation}"
-                    )
-                elif not status_v2_matches_active(
-                    status,
-                    role=self.target,
-                    transaction_id=self.transaction_id,
-                    generation=expected_generation,
-                    image_sha256=expected_image_sha256,
-                    manifest_sha256=expected_manifest_sha256,
-                ):
-                    last_error = (
-                        "missing peer confirmation: board active identity does not "
-                        "match transaction/generation/image"
-                    )
-                elif status.state not in (
-                    STATE_MAINTENANCE,
-                    STATE_ACTIVATION_PENDING,
-                    STATE_PENDING_CONFIRM,
-                    STATE_IDLE,
-                    STATE_CONFIRMED,
-                ):
-                    last_error = (
-                        "missing peer confirmation: receiver is not in an "
-                        f"activated state ({status.state})"
-                    )
-                elif status.target_generation not in (0, expected_generation):
-                    last_error = (
-                        "missing peer confirmation: target generation "
-                        f"{status.target_generation} != {expected_generation}"
-                    )
-                elif not (status.status_flags & STATUS_PEER_COMPATIBLE):
-                    last_error = (
-                        "missing peer confirmation: receiver did not assert "
-                        "peer-compatible"
-                    )
-                elif not (status.status_flags & STATUS_HEALTH_PASSED):
-                    last_error = (
-                        "missing peer confirmation: receiver health check not passed"
-                    )
-                elif not (
-                    status.status_flags & STATUS_LOCAL_BOOT_VALIDATED
-                ):
-                    last_error = (
-                        "missing peer confirmation: local boot not validated"
-                    )
-                elif not status.local_validated:
-                    last_error = (
-                        "missing peer confirmation: local validation is not "
-                        "durable in Status V2"
-                    )
-                else:
-                    return status
-            except (OtaToolError, OSError) as exc:
-                last_error = f"missing peer confirmation: {exc}"
-            time.sleep(min(poll_interval, max(0.0, deadline - time.monotonic())))
-        raise OtaToolError(last_error)
+                last = client.status()
+                last_observed = last
+            except (OtaToolError, OSError):
+                last = None
+        if last is not None:
+            if _current_and_healthy(last, manifest):
+                return last
+            if _pending_exact(last, manifest):
+                try:
+                    client.confirm()
+                except (OtaToolError, OSError):
+                    pass
+        last = None
+        time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+    detail = ("no status" if last_observed is None
+              else f"state={last_observed.state}")
+    raise OtaToolError(f"timed out waiting for {label}: {detail}")
 
-    def wait_confirmed_peer(
-        self,
-        *,
-        expected_generation: int,
-        expected_image_sha256: bytes | None = None,
-        expected_manifest_sha256: bytes | None = None,
-        timeout: float = 3.0,
-        poll_interval: float = 0.1,
-    ) -> StatusPayload:
-        """Require the peer's active image, idle state and health evidence."""
-        expected_generation = _u32(
-            expected_generation, "expected_generation", minimum=1
+
+def _preflight_board(transport: Transport, *, target: int,
+                     manifest: Manifest, request_timeout: float,
+                     retries: int, boot_timeout: float) -> tuple[OtaClient, str,
+                                                                  StatusPayloadV2]:
+    client = OtaClient(transport, target=target, timeout=request_timeout,
+                       retries=retries)
+    status = client.status()
+    if status.role != target:
+        raise OtaToolError("Status V2 role does not match target")
+    if status.hardware_revision != manifest.hardware_revision or \
+            status.project_name != manifest.project_name or \
+            status.partition_schema != manifest.partition_schema:
+        raise OtaToolError("board identity does not match signed package")
+    if _current_and_healthy(status, manifest):
+        if target == TARGET_RIGHT:
+            client.exit_maintenance()
+        return client, "skipped", status
+    if status.state == STATE_PENDING_CONFIRM:
+        if not _pending_image_exact(status, manifest):
+            raise OtaToolError("PendingConfirm running image is not the package")
+        final = _confirm_until_healthy(
+            client, manifest, timeout=boot_timeout,
+            label="confirmed Idle image", initial=status,
         )
-        if timeout <= 0 or poll_interval <= 0:
-            raise OtaToolError("confirmed-peer timeout/poll interval must be positive")
-        deadline = time.monotonic() + timeout
-        last_error = "missing confirmed peer health"
-        while time.monotonic() < deadline:
-            try:
-                status = decode_status_v2(self.status().payload)
-                active_match = status_v2_matches_active(
-                    status,
-                    role=self.target,
-                    transaction_id=self.transaction_id,
-                    generation=expected_generation,
-                    image_sha256=expected_image_sha256,
-                    manifest_sha256=expected_manifest_sha256,
-                )
-                completed_match = status_v2_matches_completed(
-                    status,
-                    role=self.target,
-                    transaction_id=self.transaction_id,
-                    generation=expected_generation,
-                    image_sha256=expected_image_sha256,
-                    manifest_sha256=expected_manifest_sha256,
-                )
-                if status.active_generation != expected_generation:
-                    active_match = False
-                if not active_match and not completed_match:
-                    last_error = (
-                        "missing confirmed peer health: board identity/tombstone "
-                        "does not match transaction/generation/image"
-                    )
-                elif status.state not in (
-                    STATE_IDLE, STATE_MAINTENANCE, STATE_CONFIRMED
-                ):
-                    last_error = (
-                        "missing confirmed peer health: state "
-                        f"{status.state} is not logically idle"
-                    )
-                elif (status.status_flags & STATUS_PEER_COMPATIBLE) == 0:
-                    last_error = "missing confirmed peer health: incompatible peer"
-                elif (status.status_flags & STATUS_HEALTH_PASSED) == 0:
-                    last_error = "missing confirmed peer health: health check not passed"
-                elif (
-                    status.status_flags & STATUS_LOCAL_BOOT_VALIDATED
-                ) == 0:
-                    last_error = (
-                        "missing confirmed peer health: local boot not validated"
-                    )
-                elif not status.local_validated:
-                    last_error = (
-                        "missing confirmed peer health: local validation is "
-                        "not durable in Status V2"
-                    )
-                elif completed_match and not status.pair_committed:
-                    last_error = (
-                        "missing confirmed peer health: pair commit is not "
-                        "durable in Status V2"
-                    )
-                else:
-                    return status
-            except (OtaToolError, OSError) as exc:
-                last_error = f"missing confirmed peer health: {exc}"
-            time.sleep(min(poll_interval, max(0.0, deadline - time.monotonic())))
-        raise OtaToolError(last_error)
-
-    def abort(self, *, allow_ota: bool = False,
-              preflight_status: bool = True) -> Frame:
-        if not allow_ota:
-            raise OtaToolError("abort requires explicit --allow-ota authorization")
-        if preflight_status:
-            self.status()
-        return self.request(CMD_ABORT)
-
-    def safe_abort(self) -> Frame | None:
-        try:
-            return self.request(CMD_ABORT, retries=0)
-        except Exception:
-            return None
-
-    def activate(self, *, allow_activate: bool = False,
-                 preflight_status: bool = True) -> Frame:
-        if not allow_activate:
-            raise OtaToolError(
-                "activation requires independent explicit --allow-activate authorization"
+        if target == TARGET_RIGHT:
+            client.exit_maintenance()
+        return client, "confirmed", final
+    if status.state in (STATE_RECEIVING, STATE_PREPARED):
+        active = OtaClient(
+            transport, target=target, transaction_id=status.transaction_id,
+            timeout=request_timeout, retries=retries,
         )
-        try:
-            if preflight_status:
-                self.status()
-            return self.request(CMD_ACTIVATE)
-        except Exception:
-            # ACTIVATE changes boot selection before its ACK is observed.  A
-            # timeout is therefore ambiguous: sending ABORT here can erase
-            # the durable ActivationPending evidence or roll the peer back
-            # after the write already took effect.  Reconcile with a
-            # read-only STATUS only; the orchestrator owns recovery.
-            self.safe_status()
-            raise
+        active.abort()
+        client = OtaClient(transport, target=target, timeout=request_timeout,
+                           retries=retries)
+    elif status.state != STATE_IDLE:
+        raise OtaToolError(f"unsupported board state {status.state}")
+    return client, "update", status
 
-    def confirm(self, *, allow_confirm: bool = False,
-                preflight_status: bool = True) -> Frame:
-        if not allow_confirm:
-            raise OtaToolError(
-                "confirmation requires independent explicit --allow-confirm authorization"
+
+def _update_right(transport: Transport, package: bytes, manifest: Manifest, *,
+                  request_timeout: float, retries: int,
+                  boot_timeout: float) -> tuple[str, StatusPayloadV2]:
+    client, action, status = _preflight_board(
+        transport, target=TARGET_RIGHT, manifest=manifest,
+        request_timeout=request_timeout, retries=retries,
+        boot_timeout=boot_timeout,
+    )
+    if action != "update":
+        return action, status
+    client.prepare(package)
+    prepared = client.status()
+    if not _prepared_exact(prepared, manifest, client.transaction_id):
+        raise OtaToolError("right board did not report exact Prepared state")
+    try:
+        client.activate()
+    except (OtaToolError, OSError):
+        # ACTIVATE may have taken effect even when its ACK was lost.  Do not
+        # replay a boot-selection mutation blindly; the new image facts below
+        # distinguish PendingConfirm/Idle from a still-Prepared old image.
+        pass
+    final = _confirm_until_healthy(
+        client, manifest, timeout=boot_timeout, label="right Idle health",
+    )
+    client.exit_maintenance()
+    return "updated", final
+
+
+def _update_left(transport: Transport, transport_factory: Any, package: bytes,
+                 manifest: Manifest, *, request_timeout: float, retries: int,
+                 boot_timeout: float) -> tuple[Transport, str, StatusPayloadV2]:
+    client, action, status = _preflight_board(
+        transport, target=TARGET_LEFT, manifest=manifest,
+        request_timeout=request_timeout, retries=retries,
+        boot_timeout=boot_timeout,
+    )
+    if action != "update":
+        return transport, action, status
+    client.prepare(package)
+    prepared = client.status()
+    if not _prepared_exact(prepared, manifest, client.transaction_id):
+        raise OtaToolError("left board did not report exact Prepared state")
+    try:
+        client.activate()
+    except (OtaToolError, OSError):
+        # USB reconnect plus Status is the only reliable observation after an
+        # ACK-loss/reboot race; never infer that ACTIVATE failed from silence.
+        pass
+    transport.close()
+    transport = transport_factory()
+    client = OtaClient(transport, target=TARGET_LEFT, timeout=request_timeout,
+                       retries=retries)
+    final = _confirm_until_healthy(
+        client, manifest, timeout=boot_timeout, label="left Idle health",
+    )
+    return transport, "updated", final
+
+
+def update_pair(*, transport_factory: Any, right_package: bytes,
+                left_package: bytes, request_timeout: float, retries: int,
+                boot_timeout: float, progress: Any,
+                controller_detached: bool = True) -> dict[str, Any]:
+    """Update right then left using only current board facts."""
+    if controller_detached is not True:
+        raise OtaToolError("controller_detached=True is required before serial I/O")
+    if request_timeout <= 0 or retries < 0 or boot_timeout <= 0:
+        raise OtaToolError("timeouts must be positive and retries non-negative")
+    right, _, _ = _package_bytes(right_package, TARGET_RIGHT)
+    left, _, _ = _package_bytes(left_package, TARGET_LEFT)
+    if right.generation != left.generation:
+        raise OtaToolError("left/right package generations must match")
+    for manifest in (right, left):
+        peer = left.generation if manifest is right else right.generation
+        if not manifest.min_peer_generation <= peer <= manifest.max_peer_generation:
+            raise OtaToolError("package rejects target peer generation")
+    emit = progress if progress is not None else (lambda _stage: None)
+    transport: Transport | None = None
+    try:
+        emit("preflight")
+        transport = transport_factory()
+        emit("right")
+        right_action, right_status = _update_right(
+            transport, right_package, right, request_timeout=request_timeout,
+            retries=retries, boot_timeout=boot_timeout,
         )
-        try:
-            # For a forwarded right-board confirmation this read-only status
-            # gives the left manager a chance to re-bootstrap UART1.
-            if preflight_status:
-                self.status()
-            return self.request(CMD_CONFIRM)
-        except Exception:
-            # CONFIRM is a state-changing command and an absent ACK does not
-            # prove that it failed.  Never turn that ambiguity into an ABORT;
-            # preserve the board's durable evidence for exact-tx reconcile.
-            self.safe_status()
-            raise
+        emit("left")
+        transport, left_action, left_status = _update_left(
+            transport, transport_factory, left_package, left,
+            request_timeout=request_timeout, retries=retries,
+            boot_timeout=boot_timeout,
+        )
+        emit("complete")
+        return {
+            "generation": left.generation,
+            "right": {"action": right_action,
+                      "status": status_v2_json(right_status)},
+            "left": {"action": left_action,
+                     "status": status_v2_json(left_status)},
+        }
+    finally:
+        if transport is not None:
+            transport.close()
 
 
 def _load_package(path: str | Path) -> tuple[bytes, Manifest]:
@@ -2246,7 +1784,7 @@ def _open_client(
     return OtaClient(
         transport,
         target=target,
-        transaction_id=args.transaction_id if transaction_id is None else transaction_id,
+        transaction_id=transaction_id,
         timeout=args.timeout,
         retries=args.retries,
     )
@@ -2264,54 +1802,17 @@ def _print(value: Mapping[str, Any] | Any) -> None:
     print(json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False))
 
 
-def _frame_info(frame: Frame) -> dict[str, Any]:
-    info: dict[str, Any] = {
-        "command": f"0x{frame.command:02x}",
-        "transaction_id": frame.transaction_id,
-        "offset": frame.offset,
-        "sequence": frame.sequence,
-        "payload_hex": frame.payload.hex(),
-    }
-    try:
-        status_v2 = decode_status_v2(frame.payload)
-    except OtaToolError:
-        try:
-            status = decode_status_payload(frame.payload)
-        except OtaToolError:
-            return info
-        info["status"] = {
-            "version": 1,
-            "state": status.state,
-            "last_command": f"0x{status.last_command:02x}",
-            "reason": status.reason,
-            "reason_name": NACK_REASONS.get(status.reason, "unknown"),
-            "next_offset": status.next_offset,
-            "target_generation": status.target_generation,
-            "active_generation": status.active_generation,
-            "status_flags": status.status_flags,
-        }
-        return info
-    info["status"] = status_v2_json(status_v2)
-    return info
-
-
-# Consumers (notably update_proxy_pair.py) require the *complete* board fact,
-# so this projection is derived from the dataclass rather than hand-listed.  A
-# hand-maintained list silently dropped seven decoded fields, which made every
-# board's status look incomplete and blocked the orchestrator before prepare.
+# Derive the projection from the dataclass so every fixed board fact is present.
 def status_v2_json(status: StatusPayloadV2) -> dict[str, Any]:
-    """Project a decoded Status V2 into JSON without losing any board fact."""
+    """Project every fixed Status V2 board fact without lossy formatting."""
 
     payload: dict[str, Any] = {"version": 2}
     for field in dataclass_fields(status):
         value = getattr(status, field.name)
         payload[field.name] = value.hex() if isinstance(value, bytes) else value
-    # Derived conveniences and the historical display formats callers parse.
     payload["last_command"] = f"0x{status.last_command:02x}"
     payload["last_response_command"] = f"0x{status.last_response_command:02x}"
     payload["reason_name"] = NACK_REASONS.get(status.reason, "unknown")
-    payload["local_validated"] = status.local_validated
-    payload["pair_committed"] = status.pair_committed
     return payload
 
 
@@ -2351,102 +1852,17 @@ def _parser() -> argparse.ArgumentParser:
     anchor.add_argument("--output", required=True)
     anchor.add_argument("--force", action="store_true")
 
-    def serial_parser(name: str, *, package_arg: bool = False) -> argparse.ArgumentParser:
+    def serial_parser(name: str) -> argparse.ArgumentParser:
         command = sub.add_parser(name)
         command.add_argument("--port", required=True, help="explicit maintenance UART port")
         command.add_argument("--target", choices=("left", "right"), required=True)
         command.add_argument("--baud", type=int, default=4_000_000)
         command.add_argument("--timeout", type=float, default=DEFAULT_UART_REQUEST_TIMEOUT)
         command.add_argument("--retries", type=int, default=3)
-        command.add_argument("--transaction-id", type=lambda x: int(x, 0))
-        if package_arg:
-            command.add_argument("--package", required=True)
         return command
 
-    status_command = serial_parser("status")
-    status_command.add_argument(
-        "--legacy-v1", action="store_true",
-        help="explicit diagnostic compatibility; never used by automatic updater",
-    )
-    abort = serial_parser("abort")
-    abort.add_argument("--allow-ota", action="store_true")
-    prepare = serial_parser("prepare", package_arg=True)
-    prepare.add_argument("--allow-ota", action="store_true")
-    prepare.add_argument("--package-sha256", required=True,
-                         help="exact SHA-256 of the complete manifest+image package")
-    activate = serial_parser("activate")
-    activate.add_argument("--allow-activate", action="store_true")
-    confirm = serial_parser("confirm")
-    confirm.add_argument("--allow-confirm", action="store_true")
+    serial_parser("status")
 
-    pair_prepare = sub.add_parser(
-        "pair-prepare",
-        help="prepare right then left through one explicit left-board port; never activate",
-    )
-    pair_prepare.add_argument("--port", required=True,
-                              help="the one explicit CH343/left-board maintenance port")
-    pair_prepare.add_argument("--right-package", required=True)
-    pair_prepare.add_argument("--left-package", required=True)
-    pair_prepare.add_argument("--allow-ota", action="store_true")
-    pair_prepare.add_argument("--right-package-sha256", required=True)
-    pair_prepare.add_argument("--left-package-sha256", required=True)
-    pair_prepare.add_argument("--baud", type=int, default=4_000_000)
-    pair_prepare.add_argument("--timeout", type=float, default=DEFAULT_UART_REQUEST_TIMEOUT)
-    pair_prepare.add_argument("--retries", type=int, default=3)
-    pair_prepare.add_argument("--transaction-id", type=lambda x: int(x, 0))
-
-    pair_activate = sub.add_parser(
-        "pair-activate",
-        help="activate right then left through one port after peer confirmation",
-    )
-    pair_activate.add_argument("--port", required=True,
-                               help="the one explicit CH343/left-board maintenance port")
-    pair_activate.add_argument("--allow-activate", action="store_true")
-    pair_activate.add_argument("--target-generation", type=int, required=True,
-                               help="expected right-board generation after reboot")
-    pair_activate.add_argument(
-        "--right-image-sha256",
-        help="signed right image SHA-256 required for exact Status V2 reconcile",
-    )
-    pair_activate.add_argument(
-        "--left-image-sha256",
-        help="signed left image SHA-256 required for exact Status V2 reconcile",
-    )
-    pair_activate.add_argument(
-        "--right-manifest-sha256",
-        help="right manifest wire SHA-256 required for exact Status V2 reconcile",
-    )
-    pair_activate.add_argument(
-        "--left-manifest-sha256",
-        help="left manifest wire SHA-256 required for exact Status V2 reconcile",
-    )
-    pair_activate.add_argument("--peer-confirm-timeout", type=float, default=3.0)
-    pair_activate.add_argument("--peer-confirm-poll", type=float, default=0.1)
-    pair_activate.add_argument("--peer-settle", type=float, default=0.25)
-    pair_activate.add_argument("--baud", type=int, default=4_000_000)
-    pair_activate.add_argument("--timeout", type=float, default=DEFAULT_UART_REQUEST_TIMEOUT)
-    pair_activate.add_argument("--retries", type=int, default=3)
-    pair_activate.add_argument("--transaction-id", type=lambda x: int(x, 0), required=True,
-                               help="the same transaction id printed by pair-prepare")
-    pair_confirm = sub.add_parser(
-        "pair-confirm",
-        help="confirm right then left after both boot and pass pair health checks",
-    )
-    pair_confirm.add_argument("--port", required=True)
-    pair_confirm.add_argument("--allow-confirm", action="store_true")
-    pair_confirm.add_argument("--target-generation", type=int, required=True)
-    pair_confirm.add_argument("--right-image-sha256")
-    pair_confirm.add_argument("--left-image-sha256")
-    pair_confirm.add_argument("--right-manifest-sha256")
-    pair_confirm.add_argument("--left-manifest-sha256")
-    pair_confirm.add_argument("--peer-confirm-timeout", type=float, default=3.0)
-    pair_confirm.add_argument("--peer-confirm-poll", type=float, default=0.1)
-    pair_confirm.add_argument("--peer-settle", type=float, default=0.25)
-    pair_confirm.add_argument("--baud", type=int, default=4_000_000)
-    pair_confirm.add_argument("--timeout", type=float, default=DEFAULT_UART_REQUEST_TIMEOUT)
-    pair_confirm.add_argument("--retries", type=int, default=3)
-    pair_confirm.add_argument("--transaction-id", type=lambda x: int(x, 0),
-                              required=True)
     return parser
 
 
@@ -2463,7 +1879,7 @@ def main(argv: list[str] | None = None) -> int:
             role_defaults = {
                 "left": (LEFT_PARTITION_SCHEMA_V1, LEFT_PROJECT_NAME),
                 "right": (RIGHT_PARTITION_SCHEMA_V1,
-                          RIGHT_MANIFEST_PROJECT_NAME),
+                          RIGHT_PROJECT_NAME),
             }
             expected_schema, expected_project = role_defaults[args.role]
             partition_schema = (expected_schema if args.partition_schema is None
@@ -2534,382 +1950,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "status":
             client = _open_client(args.port, _role_value(args.target), args)
             try:
-                frame = client.status(v2=not args.legacy_v1)
-                _print({"command": "status", "response": _frame_info(frame)})
+                status = client.status()
+                if args.target == "right":
+                    client.exit_maintenance()
+                _print({"command": "status", "status": status_v2_json(status)})
             finally:
                 _close_client(client)
-            return 0
-        if args.command == "abort":
-            client = _open_client(args.port, _role_value(args.target), args)
-            try:
-                frame = client.abort(allow_ota=args.allow_ota)
-                _print({"command": "abort", "response": _frame_info(frame)})
-            finally:
-                _close_client(client)
-            return 0
-        if args.command == "prepare":
-            package, _manifest = _load_package(args.package)
-            client = _open_client(args.port, _manifest.role, args)
-            try:
-                _print(client.prepare(
-                    package,
-                    allow_ota=args.allow_ota,
-                    expected_package_sha256=args.package_sha256,
-                ))
-            finally:
-                _close_client(client)
-            return 0
-        if args.command in ("activate", "confirm"):
-            client = _open_client(args.port, _role_value(args.target), args)
-            try:
-                frame = client.activate(allow_activate=args.allow_activate) \
-                    if args.command == "activate" else \
-                    client.confirm(allow_confirm=args.allow_confirm)
-                _print({"command": args.command, "response": _frame_info(frame)})
-            finally:
-                _close_client(client)
-            return 0
-        if args.command == "pair-prepare":
-            if not args.allow_ota:
-                raise OtaToolError("pair-prepare requires explicit --allow-ota authorization")
-            right_package, right_manifest = _load_package(args.right_package)
-            left_package, left_manifest = _load_package(args.left_package)
-            if right_manifest.role != TARGET_RIGHT or left_manifest.role != TARGET_LEFT:
-                raise OtaToolError("pair package roles must be right and left respectively")
-            tx = args.transaction_id or (secrets.randbelow(0xFFFFFFFF) or 1)
-            transport = SerialTransport(
-                args.port, baudrate=args.baud, timeout=min(args.timeout, 0.05)
-            )
-            right = OtaClient(
-                transport, target=TARGET_RIGHT, transaction_id=tx,
-                timeout=args.timeout, retries=args.retries,
-            )
-            left = OtaClient(
-                transport, target=TARGET_LEFT, transaction_id=tx,
-                timeout=args.timeout, retries=args.retries,
-            )
-            try:
-                right.prepare(
-                    right_package,
-                    allow_ota=True,
-                    expected_package_sha256=args.right_package_sha256,
-                )
-                left.prepare(
-                    left_package,
-                    allow_ota=True,
-                    expected_package_sha256=args.left_package_sha256,
-                )
-                right_fact = decode_status_v2(right.status().payload)
-                left_fact = decode_status_v2(left.status().payload)
-                right_manifest_sha = _sha256(right_manifest.wire)
-                left_manifest_sha = _sha256(left_manifest.wire)
-                if (
-                    right_fact.state != STATE_PREPARED
-                    or not status_v2_matches_active(
-                        right_fact,
-                        role=TARGET_RIGHT,
-                        transaction_id=tx,
-                        generation=right_manifest.generation,
-                        image_sha256=right_manifest.image_sha256,
-                        manifest_sha256=right_manifest_sha,
-                    )
-                ):
-                    raise OtaToolError(
-                        "right PREPARE lacks exact Status V2 transaction/image fact"
-                    )
-                if (
-                    left_fact.state != STATE_PREPARED
-                    or not status_v2_matches_active(
-                        left_fact,
-                        role=TARGET_LEFT,
-                        transaction_id=tx,
-                        generation=left_manifest.generation,
-                        image_sha256=left_manifest.image_sha256,
-                        manifest_sha256=left_manifest_sha,
-                    )
-                ):
-                    raise OtaToolError(
-                        "left PREPARE lacks exact Status V2 transaction/image fact"
-                    )
-                _print(
-                    {
-                        "command": "pair-prepare",
-                        "prepared_order": ["right", "left"],
-                        "activated": False,
-                        "transaction_id": right.transaction_id,
-                        "prepared_facts": {
-                            "right": _status_v2_summary(right_fact),
-                            "left": _status_v2_summary(left_fact),
-                        },
-                    }
-                )
-            except Exception:
-                right.safe_abort_pre_activation()
-                if left is not None:
-                    left.safe_abort_pre_activation()
-                raise
-            finally:
-                _close_client(right)
-            return 0
-        if args.command == "pair-activate":
-            if not args.allow_activate:
-                raise OtaToolError(
-                    "pair-activate requires independent explicit --allow-activate authorization"
-                )
-            tx = args.transaction_id or (secrets.randbelow(0xFFFFFFFF) or 1)
-            transport = SerialTransport(
-                args.port, baudrate=args.baud, timeout=min(args.timeout, 0.05)
-            )
-            right = OtaClient(
-                transport, target=TARGET_RIGHT, transaction_id=tx,
-                timeout=args.timeout, retries=args.retries,
-            )
-            left = OtaClient(
-                transport, target=TARGET_LEFT, transaction_id=tx,
-                timeout=args.timeout, retries=args.retries,
-            )
-            try:
-                right_image_sha = _hex_bytes(
-                    args.right_image_sha256, 32, "right_image_sha256"
-                )
-                left_image_sha = _hex_bytes(
-                    args.left_image_sha256, 32, "left_image_sha256"
-                )
-                right_manifest_sha = _hex_bytes(
-                    args.right_manifest_sha256, 32, "right_manifest_sha256"
-                )
-                left_manifest_sha = _hex_bytes(
-                    args.left_manifest_sha256, 32, "left_manifest_sha256"
-                )
-                before = decode_status_v2(right.status().payload)
-                right_disposition = activation_disposition(
-                    before,
-                    role=TARGET_RIGHT,
-                    transaction_id=tx,
-                    generation=args.target_generation,
-                    image_sha256=right_image_sha,
-                    manifest_sha256=right_manifest_sha,
-                )
-                if right_disposition == "activate":
-                    right.activate(allow_activate=True, preflight_status=False)
-                    # The right board reboots after ACTIVATE.  Wait for the
-                    # left manager to re-establish UART1 before polling it.
-                    time.sleep(max(0.0, args.peer_settle))
-                right_after = OtaClient(
-                    transport, target=TARGET_RIGHT, transaction_id=tx,
-                    timeout=args.timeout, retries=args.retries,
-                )
-                if right_disposition == "completed":
-                    peer = right_after.wait_confirmed_peer(
-                        expected_generation=args.target_generation,
-                        expected_image_sha256=right_image_sha,
-                        expected_manifest_sha256=right_manifest_sha,
-                        timeout=args.peer_confirm_timeout,
-                        poll_interval=args.peer_confirm_poll,
-                    )
-                else:
-                    peer = right_after.wait_peer_confirmation(
-                        expected_generation=args.target_generation,
-                        expected_image_sha256=right_image_sha,
-                        expected_manifest_sha256=right_manifest_sha,
-                        timeout=args.peer_confirm_timeout,
-                        poll_interval=args.peer_confirm_poll,
-                    )
-                left_before = decode_status_v2(left.status().payload)
-                left_disposition = activation_disposition(
-                    left_before,
-                    role=TARGET_LEFT,
-                    transaction_id=tx,
-                    generation=args.target_generation,
-                    image_sha256=left_image_sha,
-                    manifest_sha256=left_manifest_sha,
-                )
-                if left_disposition == "activate":
-                    left.activate(allow_activate=True, preflight_status=False)
-                _print(
-                    {
-                        "command": "pair-activate",
-                        "activation_order": ["right", "left"],
-                        "atomic": False,
-                        "peer_confirmation": {
-                            "target_generation": peer.target_generation,
-                            "active_generation": peer.active_generation,
-                            "status_flags": peer.status_flags,
-                            "fact": _status_v2_summary(peer),
-                        },
-                    }
-                )
-            except Exception:
-                right.safe_status()
-                left.safe_status()
-                raise
-            finally:
-                _close_client(right)
-            return 0
-        if args.command == "pair-confirm":
-            if not args.allow_confirm:
-                raise OtaToolError(
-                    "pair-confirm requires independent explicit --allow-confirm authorization"
-                )
-            tx = args.transaction_id
-            transport = SerialTransport(
-                args.port, baudrate=args.baud, timeout=min(args.timeout, 0.05)
-            )
-            right = OtaClient(
-                transport, target=TARGET_RIGHT, transaction_id=tx,
-                timeout=args.timeout, retries=args.retries,
-            )
-            left = OtaClient(
-                transport, target=TARGET_LEFT, transaction_id=tx,
-                timeout=args.timeout, retries=args.retries,
-            )
-            try:
-                # Read both boards on the exact transaction before issuing
-                # either CONFIRM write.  This is important after a lost host
-                # response: the boards may already be confirmed even though
-                # the local journal is still at ``activated``.
-                right_image_sha = _hex_bytes(
-                    args.right_image_sha256, 32, "right_image_sha256"
-                )
-                left_image_sha = _hex_bytes(
-                    args.left_image_sha256, 32, "left_image_sha256"
-                )
-                right_manifest_sha = _hex_bytes(
-                    args.right_manifest_sha256, 32, "right_manifest_sha256"
-                )
-                left_manifest_sha = _hex_bytes(
-                    args.left_manifest_sha256, 32, "left_manifest_sha256"
-                )
-                before_right = decode_status_v2(right.status().payload)
-                before_left = decode_status_v2(left.status().payload)
-                right_already_confirmed = (
-                    status_v2_matches_completed(
-                        before_right,
-                        role=TARGET_RIGHT,
-                        transaction_id=tx,
-                        generation=args.target_generation,
-                        image_sha256=right_image_sha,
-                        manifest_sha256=right_manifest_sha,
-                    )
-                    and before_right.local_validated
-                    and before_right.pair_committed
-                    and (before_right.status_flags & STATUS_PEER_COMPATIBLE) != 0
-                    and (before_right.status_flags & STATUS_HEALTH_PASSED) != 0
-                )
-                left_already_confirmed = (
-                    status_v2_matches_completed(
-                        before_left,
-                        role=TARGET_LEFT,
-                        transaction_id=tx,
-                        generation=args.target_generation,
-                        image_sha256=left_image_sha,
-                        manifest_sha256=left_manifest_sha,
-                    )
-                    and before_left.local_validated
-                    and before_left.pair_committed
-                    and (before_left.status_flags &
-                         STATUS_LOCAL_BOOT_VALIDATED) != 0
-                    and (before_left.status_flags & STATUS_PEER_COMPATIBLE) != 0
-                    and (before_left.status_flags & STATUS_HEALTH_PASSED) != 0
-                )
-                left_pending_confirm = (
-                    before_left.state == STATE_PENDING_CONFIRM
-                    and status_v2_matches_active(
-                        before_left,
-                        role=TARGET_LEFT,
-                        transaction_id=tx,
-                        generation=args.target_generation,
-                        image_sha256=left_image_sha,
-                        manifest_sha256=left_manifest_sha,
-                    )
-                )
-                if not left_already_confirmed and not left_pending_confirm:
-                    # ActivationPending is a valid pre-reboot marker, but the
-                    # left state machine accepts CONFIRM only in
-                    # PendingConfirm.  Fail closed without issuing a write.
-                    raise OtaToolError(
-                        "left board is neither already confirmed nor pending "
-                        "confirmation at the requested generation"
-                    )
-
-                confirm_order: list[str] = []
-                confirm_skipped: list[str] = []
-
-                if not right_already_confirmed:
-                    if (
-                        before_right.state not in (
-                            STATE_ACTIVATION_PENDING, STATE_PENDING_CONFIRM
-                        )
-                        or not status_v2_matches_active(
-                            before_right,
-                            role=TARGET_RIGHT,
-                            transaction_id=tx,
-                            generation=args.target_generation,
-                            image_sha256=right_image_sha,
-                            manifest_sha256=right_manifest_sha,
-                        )
-                    ):
-                        raise OtaToolError(
-                            "right board lacks exact pending Status V2 identity"
-                        )
-                    right.confirm(allow_confirm=True, preflight_status=False)
-                    confirm_order.append("right")
-                    time.sleep(max(0.0, args.peer_settle))
-                else:
-                    confirm_skipped.append("right")
-                right_after = OtaClient(
-                    transport, target=TARGET_RIGHT, transaction_id=tx,
-                    timeout=args.timeout, retries=args.retries,
-                )
-                peer = right_after.wait_confirmed_peer(
-                    expected_generation=args.target_generation,
-                    expected_image_sha256=right_image_sha,
-                    expected_manifest_sha256=right_manifest_sha,
-                    timeout=args.peer_confirm_timeout,
-                    poll_interval=args.peer_confirm_poll,
-                )
-
-                if not left_already_confirmed:
-                    # Re-read immediately before the second write so a
-                    # concurrent/retried host cannot turn an already-idle
-                    # left board into an InvalidState NACK.  Only
-                    # PendingConfirm is writable; ActivationPending and all
-                    # other states fail closed without a CONFIRM frame.
-                    left_now = decode_status_v2(left.status().payload)
-                    if (
-                        left_now.state != STATE_PENDING_CONFIRM
-                        or not status_v2_matches_active(
-                            left_now,
-                            role=TARGET_LEFT,
-                            transaction_id=tx,
-                            generation=args.target_generation,
-                            image_sha256=left_image_sha,
-                            manifest_sha256=left_manifest_sha,
-                        )
-                    ):
-                        raise OtaToolError(
-                            "left board is no longer pending confirmation at "
-                            "the requested generation"
-                        )
-                    left.confirm(allow_confirm=True, preflight_status=False)
-                    confirm_order.append("left")
-                else:
-                    confirm_skipped.append("left")
-                _print({
-                    "command": "pair-confirm",
-                    "confirm_order": confirm_order,
-                    "confirm_skipped": confirm_skipped,
-                    "transaction_id": tx,
-                    "active_generation": peer.active_generation,
-                    "right_fact": _status_v2_summary(peer),
-                    "pair_health_confirmed": True,
-                })
-            except Exception:
-                right.safe_status()
-                left.safe_status()
-                raise
-            finally:
-                _close_client(right)
             return 0
         raise OtaToolError(f"unknown command {args.command}")
     except OtaToolError as exc:

@@ -33,6 +33,6 @@ G-08 抓的是 Windows 上 USB1 当前透传人设，**不是**让你再插一�
 | `GO1_READONLY_AUDIT_PACK.md` | 总裁决 |
 | `go1_freeze_20260806/` | gen15 静态冻结 + signed mkota |
 | `go1_live_readonly/usb1_g08_census_20260806.json` | G-08 普查结论 |
-| `go1_left_readonly_status.py` | 只读 status |
+| 旧只读 status 操作脚本 | 已随旧协议归档移除；以 `go1_live_readonly/` 抓取结果为证据 |
 | `go1_capture_usb1_descriptor.py` | USB1 抓包 |
-| `go1_left_prepare.py` | Prepare（已注入 SHA；勿无人 Activate） |
+| 旧 Prepare 操作脚本 | 已随旧协议归档移除；勿按历史流程无人 Activate |

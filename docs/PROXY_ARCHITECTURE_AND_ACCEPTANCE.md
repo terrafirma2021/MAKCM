@@ -30,16 +30,11 @@ The current branch now has the first generic-proxy boundary in code:
 
 These changes are compiled and covered by the host `ProfileStore`, capability,
 policy and complete 4-IN/2-OUT profile tests, but the physical acceptance gates
-below still require paired firmware flashing and USBPcap/Windows measurements.
+below still require a signed pair release and USBPcap/Windows measurements.
 
-When both boards are in download mode, the paired images can be written with:
-
-```powershell
-.\tools\flash_generic_proxy_pair.ps1 -RightPort COM6 -LeftPort COM3
-```
-
-The script refuses COM5 (the runtime/shared-debug port), verifies that both
-images exist, and lets esptool perform its normal write verification.
+Application deployment uses only `tools/update_proxy_pair.py` through the left
+board CH343. It completes and health-checks Right before beginning Left. Build,
+signing and deployment details are in `docs/OTA_HANDOFF_20260806.md`.
 
 ## Trigger condition and remaining blocker
 

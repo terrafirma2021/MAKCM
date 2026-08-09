@@ -25,12 +25,12 @@
 #include "tinyusb_adapter.h"
 #include "OtaBoardConfig.h"
 #include "OtaGeneration.h"
-#include "PairOtaTransaction.h"
 #include "OtaTrustAnchor.h"
 #include "mbedtls/sha256.h"
 
 namespace {
 constexpr char kTag[] = "makcm-left-idf";
+constexpr uint32_t kRightResponseTimeoutMs = 7000;
 
 enum class ProxyState : uint8_t {
     WaitingProfile,
@@ -54,15 +54,14 @@ SemaphoreHandle_t ota_mutex = nullptr;
 std::atomic<bool> ota_quiesced{false};
 std::atomic<bool> ota_ready{false};
 std::atomic<bool> ota_boot_prerequisites_ready{false};
-std::atomic<uint32_t> right_active_generation{0};
+std::atomic<uint32_t> right_running_generation{0};
 std::atomic<uint32_t> right_status_flags{0};
 std::atomic<uint8_t> right_ota_state{
-    static_cast<uint8_t>(makcm::ota::State::Fault)};
+    static_cast<uint8_t>(makcm::ota::State::Idle)};
 std::atomic<uint32_t> right_link_reset_at_ms{0};
-// Set only after an exact terminal/cancellation response proves that no pair
-// transaction exists.  It lets left-only/right-only maintenance sessions
-// release without weakening the fail-closed pair-record gate.
-std::atomic<bool> ota_unpaired_idle_release_authorized{false};
+// Set only after an exact correlated Exit/Abort/Confirm ACK proves that the
+// right maintenance channel can be released. STATUS alone is observational.
+std::atomic<bool> ota_release_authorized{false};
 std::atomic<uint32_t> main_min_free_stack_bytes{UINT32_MAX};
 makcm::ota::Frame pending_right_request{};
 makcm::ota::Frame ota_control_response{};
@@ -72,71 +71,16 @@ bool pending_right_request_valid = false;
 uint32_t pending_right_request_started_ms = 0;
 uint32_t right_maintenance_transaction = 0;
 bool right_response_expected = false;
+uint32_t right_response_started_ms = 0;
 uint32_t right_expected_transaction = 0;
 uint32_t right_expected_sequence = 0;
+makcm::ota::Command right_expected_command = makcm::ota::Command::Hello;
 // Last OTA_UNAVAILABLE the right board sent, and the hostState behind it.  A
 // refused bootstrap reaches the host as a bare NotInMaintenance NACK, which
 // says nothing about which of the right board's eight refusals fired.
 uint8_t right_bootstrap_refusal_site = 0;
 uint8_t right_bootstrap_refusal_state = 0;
 uint8_t right_bootstrap_refusal_detail = 0;
-// True once this maintenance session forwarded a right-targeted command that
-// can leave an image in flight.  HELLO/ENTER/STATUS cannot, so a session that
-// only ever forwarded those has nothing on the peer to wait for.
-bool right_image_traffic_forwarded = false;
-nvs_handle_t pair_nvs = 0;
-makcm::ota::PairTransactionRecord pair_record{};
-makcm::ota::PairTransactionRecord pair_candidate_a{};
-makcm::ota::PairTransactionRecord pair_candidate_b{};
-uint8_t pair_wire_a[makcm::ota::kPairRecordWireSize]{};
-uint8_t pair_wire_b[makcm::ota::kPairRecordWireSize]{};
-uint8_t pair_write_wire[makcm::ota::kPairRecordWireSize]{};
-uint8_t pair_readback_wire[makcm::ota::kPairRecordWireSize]{};
-uint8_t pair_legacy_probe[64]{};
-int8_t pair_selected_copy = -1;
-int32_t pair_last_nvs_error = 0;
-
-// The pair record is a second durable store, entirely separate from the OTA
-// snapshot, and it fails the host the same opaque way: every fault below
-// becomes NackReason::FlashWriteFailed.  Worse, most of its faults never had an
-// esp_err_t at all, so latchPairFault() invented ESP_ERR_INVALID_STATE /
-// ESP_ERR_INVALID_CRC and collapsed a dozen distinct causes onto two values --
-// a rejected record, a full partition, and an A/B conflict were indistinguish-
-// able.  Name the site, exactly as SnapshotCommitFault does for the snapshot.
-enum class PairFault : uint8_t {
-    None = 0,
-    StoreOpenFailed = 1,
-    CopyReadFailed = 2,
-    LegacyKeyPresent = 3,
-    CopyConflict = 4,
-    BothCopiesInvalid = 5,
-    LoadedRecordInvalid = 6,
-    NoNvsHandle = 7,
-    SequenceSaturated = 8,
-    RecordRejected = 9,
-    EncodeFailed = 10,
-    SetBlobFailed = 11,
-    CommitFailed = 12,
-    ReadbackMismatch = 13,
-    ReadbackDecodeMismatch = 14,
-    // 15+ are not storage faults at all: the record was never composed, or the
-    // evidence it would be composed from did not survive validation.  Keeping
-    // them in the same space as the write faults is the point -- the host sees
-    // one FlashWriteFailed for both families and needs to tell them apart.
-    TransactionSwitchBlocked = 15,
-    SeedFactIncomplete = 16,
-    BoardFactMismatch = 17,
-    LocalStatusUnusable = 18,
-    ResponseCorrelationMismatch = 19,
-};
-PairFault pair_fault_site = PairFault::None;
-
-bool pair_record_valid = false;
-bool pair_record_corrupt = false;
-bool pair_mode_active = false;
-makcm::ota::Frame pair_status_probe_request{};
-makcm::ota::Frame pair_status_probe_response{};
-uint32_t pair_status_probe_sequence = 1;
 std::atomic<ProxyState> proxy_state{ProxyState::WaitingProfile};
 std::atomic<uint32_t> active_session{0};
 std::atomic<uint32_t> pending_session{0};
@@ -337,56 +281,23 @@ void secondaryText(void *, const char *line) {
         const int ota_written = std::snprintf(
             ota_diag, sizeof(ota_diag),
             "LEFT_OTA_DIAG quiesced=%u bridge_maint=%u sec_maint=%u "
-            "state=%u excl=%u imgfwd=%u pending=%u reset_at=%lu "
-            "authz=%u pair=%u/%u/%u rtx=%lu rexp=%u installed=%u "
-            "nvs=%d ota=%d scf=%u pf=%u/%d prec=%lu/%u:%u/%u:%u "
+            "state=%u excl=%u pending=%u reset_at=%lu "
+            "authz=%u rtx=%lu rexp=%u installed=%u "
+            "ota=%d "
             "rrefuse=%u/%u/%u\r\n",
             ota_quiesced.load(std::memory_order_acquire) ? 1u : 0u,
             bridge.otaMaintenance() ? 1u : 0u,
             secondary.otaMaintenance() ? 1u : 0u,
             static_cast<unsigned>(ota_manager.state()),
             ota_manager.maintenanceExclusive() ? 1u : 0u,
-            right_image_traffic_forwarded ? 1u : 0u,
             pending_right_request_valid ? 1u : 0u,
             static_cast<unsigned long>(
                 right_link_reset_at_ms.load(std::memory_order_acquire)),
-            ota_unpaired_idle_release_authorized.load(
-                std::memory_order_acquire) ? 1u : 0u,
-            pair_record_valid ? 1u : 0u,
-            static_cast<unsigned>(pair_record.stage),
-            pair_record_corrupt ? 1u : 0u,
+            ota_release_authorized.load(std::memory_order_acquire) ? 1u : 0u,
             static_cast<unsigned long>(right_maintenance_transaction),
             right_response_expected ? 1u : 0u,
             usb_installed.load(std::memory_order_acquire) ? 1u : 0u,
-            // Every snapshot commit funnels through nvs_set_blob/commit/readback
-            // and every one of them reports failure to the host as the single
-            // opaque NackReason::FlashWriteFailed.  Without the underlying
-            // esp_err_t a rejected MANIFEST is indistinguishable from a full
-            // NVS partition, a failed readback, or a ledger-identity mismatch
-            // that never touched flash at all.
-            static_cast<int>(ota_manager.bootEvidence().last_nvs_error),
             static_cast<int>(ota_manager.bootEvidence().last_ota_error),
-            // scf names which commit guard rejected the write; last_nvs_error
-            // is only meaningful for scf=5/6/7, and is stale residue otherwise.
-            static_cast<unsigned>(ota_manager.snapshotCommitFault()),
-            // The pair record is the other durable store and reports the same
-            // opaque FlashWriteFailed.  pf pairs the site with its esp_err_t
-            // because most sites have no real one -- for those the code is a
-            // stand-in and only the site is meaningful.
-            static_cast<unsigned>(pair_fault_site),
-            static_cast<int>(pair_last_nvs_error),
-            // pair=/pf= say the record is unusable but not what it holds, and
-            // the record's own transaction is what every mutation is judged
-            // against -- rtx above is the right-board maintenance transaction,
-            // a different number that reads deceptively like this one.  Which
-            // participants are present decides whether a stalled stage is a
-            // two-board transaction or a one-sided one, and those have
-            // different exits.
-            static_cast<unsigned long>(pair_record.transaction_id),
-            pair_record.left.present ? 1u : 0u,
-            static_cast<unsigned>(pair_record.left.local_phase),
-            pair_record.right.present ? 1u : 0u,
-            static_cast<unsigned>(pair_record.right.local_phase),
             // Which of the right board's eight bootstrap refusals fired, and
             // the hostState behind it.  The host only ever sees the resulting
             // NotInMaintenance NACK, which is the same for all eight.
@@ -396,62 +307,6 @@ void secondaryText(void *, const char *line) {
         if (ota_written > 0 &&
             static_cast<size_t>(ota_written) < sizeof(ota_diag))
             secondary.sendText(ota_diag);
-    } else if (std::strcmp(line, "LEFT_PAIR") == 0) {
-        // Whether the record is displaceable decides whether any new
-        // transaction can start, and it is decided by three predicates over
-        // fields none of which are otherwise observable.  A blocked switch is
-        // indistinguishable from a storage fault without them.
-        auto dump_fact = [](const char *tag,
-                            const makcm::ota::PairBoardFact &fact,
-                            makcm::ota::Target role) {
-            char buf[256]{};
-            const int n = std::snprintf(
-                buf, sizeof(buf),
-                "LEFT_PAIR %s present=%u valid=%u idc=%u lv=%u pc=%u ph=%u "
-                "tx=%lu gen=%lu seq=%lu/%lu cto=%u ctc=%u ctx=%lu cts=%lu "
-                "slot=%u/%u/%u/%u imgeq=%u exact=%u\r\n",
-                tag, fact.present ? 1u : 0u,
-                makcm::ota::validPairBoardFact(fact, role) ? 1u : 0u,
-                fact.identity_complete ? 1u : 0u,
-                fact.local_validated ? 1u : 0u, fact.pair_committed ? 1u : 0u,
-                static_cast<unsigned>(fact.local_phase),
-                static_cast<unsigned long>(fact.transaction_id),
-                static_cast<unsigned long>(fact.target_generation),
-                static_cast<unsigned long>(fact.record_sequence),
-                static_cast<unsigned long>(fact.last_request_sequence),
-                static_cast<unsigned>(fact.completed_outcome),
-                static_cast<unsigned>(fact.completed_terminal_command),
-                static_cast<unsigned long>(fact.completed_transaction_id),
-                static_cast<unsigned long>(fact.completed_terminal_sequence),
-                static_cast<unsigned>(fact.target_slot),
-                static_cast<unsigned>(fact.running_slot),
-                static_cast<unsigned>(fact.boot_slot),
-                static_cast<unsigned>(fact.previous_slot),
-                std::memcmp(fact.running_image_sha256,
-                            fact.previous_image_sha256, 32) == 0 ? 1u : 0u,
-                makcm::ota::exactBoardRollbackFact(fact, role) ? 1u : 0u);
-            if (n > 0 && static_cast<size_t>(n) < sizeof(buf))
-                secondary.sendText(buf);
-        };
-        char head[192]{};
-        const int head_n = std::snprintf(
-            head, sizeof(head),
-            "LEFT_PAIR record valid=%u corrupt=%u rec_valid=%u stage=%u "
-            "tx=%lu gen=%lu seq=%lu commit=%u rollback=%u onesided=%u\r\n",
-            pair_record_valid ? 1u : 0u, pair_record_corrupt ? 1u : 0u,
-            makcm::ota::validPairRecord(pair_record) ? 1u : 0u,
-            static_cast<unsigned>(pair_record.stage),
-            static_cast<unsigned long>(pair_record.transaction_id),
-            static_cast<unsigned long>(pair_record.target_generation),
-            static_cast<unsigned long>(pair_record.record_sequence),
-            makcm::ota::pairRecordHasExactPairCommit(pair_record) ? 1u : 0u,
-            makcm::ota::pairRecordHasExactPairRollback(pair_record) ? 1u : 0u,
-            makcm::ota::pairRecordHasExactOneSidedRollback(pair_record) ? 1u
-                                                                       : 0u);
-        if (head_n > 0 && static_cast<size_t>(head_n) < sizeof(head))
-            secondary.sendText(head);
-        dump_fact("left", pair_record.left, makcm::ota::Target::Left);
-        dump_fact("right", pair_record.right, makcm::ota::Target::Right);
     } else if (std::strcmp(line, "LEFT_CFG") == 0) {
         const uint16_t length = profile.configurationDescriptorLength();
         char header[64]{};
@@ -874,724 +729,6 @@ void disconnectUsb() {
     router.reset(0);
 }
 
-constexpr char kPairKeyA[] = "pair_a";
-constexpr char kPairKeyB[] = "pair_b";
-
-// Taking the site by parameter is deliberate: it makes every future fault path
-// declare which one it is, instead of silently reusing a neighbour's code.
-void latchPairFault(PairFault site, esp_err_t error) {
-    pair_fault_site = site;
-    pair_last_nvs_error = static_cast<int32_t>(error);
-    pair_record_corrupt = true;
-    ota_quiesced.store(true, std::memory_order_release);
-    secondary.setOtaMaintenance(true);
-}
-
-bool readPairCopy(const char *key, uint8_t *wire,
-                  makcm::ota::PairTransactionRecord &record, bool &present,
-                  bool &valid) {
-    present = false;
-    valid = false;
-    std::memset(wire, 0, makcm::ota::kPairRecordWireSize);
-    size_t length = makcm::ota::kPairRecordWireSize;
-    const esp_err_t result = nvs_get_blob(pair_nvs, key, wire, &length);
-    pair_last_nvs_error = static_cast<int32_t>(result);
-    if (result == ESP_ERR_NVS_NOT_FOUND) return true;
-    present = true;
-    if (result != ESP_OK || length != makcm::ota::kPairRecordWireSize)
-        return result == ESP_ERR_NVS_INVALID_LENGTH;
-    if (!makcm::ota::decodePairRecord(wire, length, record)) return true;
-    valid = true;
-    return true;
-}
-
-bool legacyPairKeyPresent() {
-    size_t length = sizeof(pair_legacy_probe);
-    std::memset(pair_legacy_probe, 0, sizeof(pair_legacy_probe));
-    const esp_err_t result =
-        nvs_get_blob(pair_nvs, "transaction", pair_legacy_probe, &length);
-    pair_last_nvs_error = static_cast<int32_t>(result);
-    if (result == ESP_ERR_NVS_NOT_FOUND) return false;
-    // A V1 key is evidence, not permission to silently migrate.  Its schema
-    // lacks image/slot identity, so leave the board fail-closed for host
-    // reconciliation instead of erasing it.
-    return true;
-}
-
-bool initPairStore() {
-    const esp_err_t open_result = nvs_open("makcm_pair", NVS_READWRITE,
-                                           &pair_nvs);
-    if (open_result != ESP_OK) {
-        latchPairFault(PairFault::StoreOpenFailed, open_result);
-        return false;
-    }
-
-    bool present_a = false;
-    bool present_b = false;
-    bool valid_a = false;
-    bool valid_b = false;
-    if (!readPairCopy(kPairKeyA, pair_wire_a, pair_candidate_a, present_a,
-                      valid_a) ||
-        !readPairCopy(kPairKeyB, pair_wire_b, pair_candidate_b, present_b,
-                      valid_b)) {
-        latchPairFault(PairFault::CopyReadFailed,
-                       static_cast<esp_err_t>(pair_last_nvs_error));
-        return true;
-    }
-    if (legacyPairKeyPresent()) {
-        latchPairFault(PairFault::LegacyKeyPresent, ESP_ERR_INVALID_VERSION);
-        return true;
-    }
-
-    if (valid_a && valid_b &&
-        pair_candidate_a.record_sequence == pair_candidate_b.record_sequence) {
-        if (std::memcmp(pair_wire_a, pair_wire_b,
-                        makcm::ota::kPairRecordWireSize) != 0) {
-            latchPairFault(PairFault::CopyConflict, ESP_ERR_INVALID_CRC);
-            return true;
-        }
-        pair_record = pair_candidate_a;
-        pair_selected_copy = 0;
-        pair_record_valid = true;
-    } else if (valid_a &&
-               (!valid_b || pair_candidate_a.record_sequence >
-                                pair_candidate_b.record_sequence)) {
-        pair_record = pair_candidate_a;
-        pair_selected_copy = 0;
-        pair_record_valid = true;
-    } else if (valid_b) {
-        pair_record = pair_candidate_b;
-        pair_selected_copy = 1;
-        pair_record_valid = true;
-    } else if (present_a || present_b) {
-        latchPairFault(PairFault::BothCopiesInvalid, ESP_ERR_INVALID_CRC);
-        return true;
-    } else {
-        pair_record = {};
-        pair_selected_copy = -1;
-        pair_record_valid = false;
-        pair_record_corrupt = false;
-        pair_fault_site = PairFault::None;
-        pair_last_nvs_error = ESP_ERR_NVS_NOT_FOUND;
-        return true;
-    }
-
-    if (!makcm::ota::validPairRecord(pair_record)) {
-        latchPairFault(PairFault::LoadedRecordInvalid, ESP_ERR_INVALID_CRC);
-        return true;
-    }
-    pair_mode_active = pair_record.stage != makcm::ota::PairStage::None;
-    pair_record_corrupt = false;
-    pair_fault_site = PairFault::None;
-    // Only unfinished records are maintenance hand-offs.  Exact terminal
-    // commit/rollback tombstones survive reboot for reconciliation but are
-    // positive evidence that the normal data plane may start immediately.
-    ota_quiesced.store(
-        makcm::ota::pairRecordRequiresHostReconcile(pair_record),
-        std::memory_order_release);
-    return true;
-}
-
-bool persistPairRecord(makcm::ota::PairTransactionRecord next) {
-    if (pair_nvs == 0) {
-        latchPairFault(PairFault::NoNvsHandle, ESP_ERR_INVALID_STATE);
-        return false;
-    }
-    // A mutation normally starts from a copy of pair_record, so its incoming
-    // sequence is the *old* sequence rather than zero.  Always allocate the
-    // next sequence here; otherwise alternating A/B writes contain different
-    // bytes with the same sequence and boot recovery correctly flags them as
-    // a conflict.
-    if (pair_record_valid && pair_record.record_sequence == UINT32_MAX) {
-        latchPairFault(PairFault::SequenceSaturated, ESP_ERR_INVALID_STATE);
-        return false;
-    }
-    next.record_sequence = pair_record_valid
-                               ? pair_record.record_sequence + 1
-                               : 1;
-    if (next.completed.present && next.completed.record_sequence == 0)
-        next.completed.record_sequence = next.record_sequence;
-    makcm::ota::sealPairRecord(next);
-    // Split from the encode below on purpose.  This is the pair-record twin of
-    // SnapshotCommitFault::EncodeRejected: the record the board built fails its
-    // own validator before any flash is touched, which is a logic fault in
-    // whoever composed the mutation -- not a storage problem.  Sharing one code
-    // with a genuine encode failure is what made that class of bug read as
-    // flash trouble in the OTA snapshot path for three sessions.
-    if (!makcm::ota::validPairRecord(next)) {
-        latchPairFault(PairFault::RecordRejected, ESP_ERR_INVALID_STATE);
-        return false;
-    }
-    if (!makcm::ota::encodePairRecord(next, pair_write_wire,
-                                      sizeof(pair_write_wire))) {
-        latchPairFault(PairFault::EncodeFailed, ESP_ERR_INVALID_SIZE);
-        return false;
-    }
-
-    const int8_t write_copy = pair_selected_copy == 0 ? 1 : 0;
-    const char *key = write_copy == 0 ? kPairKeyA : kPairKeyB;
-    esp_err_t result = nvs_set_blob(pair_nvs, key, pair_write_wire,
-                                    sizeof(pair_write_wire));
-    if (result != ESP_OK) {
-        latchPairFault(PairFault::SetBlobFailed, result);
-        return false;
-    }
-    result = nvs_commit(pair_nvs);
-    if (result != ESP_OK) {
-        latchPairFault(PairFault::CommitFailed, result);
-        return false;
-    }
-    size_t read_length = sizeof(pair_readback_wire);
-    std::memset(pair_readback_wire, 0, sizeof(pair_readback_wire));
-    result = nvs_get_blob(pair_nvs, key, pair_readback_wire, &read_length);
-    if (result != ESP_OK || read_length != sizeof(pair_readback_wire) ||
-        std::memcmp(pair_readback_wire, pair_write_wire,
-                    sizeof(pair_write_wire)) != 0) {
-        latchPairFault(PairFault::ReadbackMismatch,
-                       result == ESP_OK ? ESP_ERR_INVALID_CRC : result);
-        return false;
-    }
-    makcm::ota::PairTransactionRecord verified{};
-    if (!makcm::ota::decodePairRecord(pair_readback_wire, read_length,
-                                      verified) ||
-        verified.record_sequence != next.record_sequence) {
-        latchPairFault(PairFault::ReadbackDecodeMismatch, ESP_ERR_INVALID_CRC);
-        return false;
-    }
-    pair_record = verified;
-    pair_selected_copy = write_copy;
-    pair_record_valid = true;
-    pair_record_corrupt = false;
-    pair_fault_site = PairFault::None;
-    pair_mode_active = verified.stage != makcm::ota::PairStage::None;
-    ota_quiesced.store(true, std::memory_order_release);
-    return true;
-}
-
-makcm::ota::PairCompletedTombstone makePairTombstone(
-    const makcm::ota::PairBoardFact &left,
-    const makcm::ota::PairBoardFact &right, makcm::ota::snapshot::Outcome outcome,
-    makcm::ota::Command command, uint32_t sequence) {
-    makcm::ota::PairCompletedTombstone completed{};
-    completed.present = true;
-    completed.outcome = outcome;
-    completed.terminal_command = command;
-    completed.transaction_id = left.transaction_id;
-    completed.target_generation = left.target_generation;
-    completed.terminal_sequence = sequence;
-    completed.left_target_slot = left.target_slot;
-    completed.right_target_slot = right.target_slot;
-    std::memcpy(completed.left_image_sha256, left.image_sha256, 32);
-    std::memcpy(completed.right_image_sha256, right.image_sha256, 32);
-    std::memcpy(completed.left_manifest_sha256, left.manifest_sha256, 32);
-    std::memcpy(completed.right_manifest_sha256, right.manifest_sha256, 32);
-    std::memcpy(completed.left_identity_digest, left.identity_digest, 32);
-    std::memcpy(completed.right_identity_digest, right.identity_digest, 32);
-    return completed;
-}
-
-// `transaction_id` is the transaction this mutation is about, and the caller
-// always knows it -- from the request frame, or from the freshly-read status
-// that produced the fact.  It used to be inferred instead, from whichever of
-// the two facts was present with right preferred, which is wrong whenever a
-// caller re-supplies a carried-over peer fact from the record: the stale peer
-// always won the preference, captured the record's identity, and then the
-// genuinely fresh fact was rejected against it as BoardFactMismatch.  A new
-// transaction could therefore never be recognised as a switch, so the switch
-// guard below never even ran.
-bool mutatePairRecord(uint32_t transaction_id, makcm::ota::PairStage stage,
-                      const makcm::ota::PairBoardFact *left,
-                      const makcm::ota::PairBoardFact *right,
-                      const makcm::ota::PairCompletedTombstone *completed) {
-    if (transaction_id == 0) {
-        latchPairFault(PairFault::SeedFactIncomplete, ESP_ERR_INVALID_ARG);
-        return false;
-    }
-    // A fact from another transaction is ordinary staleness, not an error:
-    // callers pass the record's own peer fact forward without re-checking it.
-    // Drop it here so BoardFactMismatch keeps its narrow meaning -- a fact that
-    // claims this transaction but disagrees about its generation.
-    if (left != nullptr &&
-        (!left->present || left->transaction_id != transaction_id))
-        left = nullptr;
-    if (right != nullptr &&
-        (!right->present || right->transaction_id != transaction_id))
-        right = nullptr;
-
-    makcm::ota::PairTransactionRecord next{};
-    if (pair_record_valid) {
-        next = pair_record;
-    }
-    if (pair_record_valid && next.transaction_id != 0 &&
-        next.transaction_id != transaction_id) {
-        // The record holds a different transaction.  It may only be displaced
-        // once it owes nothing: an exact pair commit, an exact pair rollback,
-        // or a rollback the peer never joined.  That last shape has no other
-        // exit -- RolledBack requires both facts -- so evaluating retirability
-        // here means every new transaction is an opportunity to clear it,
-        // rather than leaving the record wedged with no way back.
-        if (!makcm::ota::pairRecordHasExactPairCommit(pair_record) &&
-            !makcm::ota::pairRecordHasExactPairRollback(pair_record) &&
-            !makcm::ota::pairRecordHasExactOneSidedRollback(pair_record)) {
-            latchPairFault(PairFault::TransactionSwitchBlocked, ESP_ERR_INVALID_STATE);
-            return false;
-        }
-        const auto completed_history = pair_record.completed;
-        next = {};
-        next.completed = completed_history;
-    }
-    if (next.transaction_id == 0) {
-        const makcm::ota::PairBoardFact *seed = left != nullptr ? left : right;
-        if (seed == nullptr || seed->target_generation == 0) {
-            latchPairFault(PairFault::SeedFactIncomplete, ESP_ERR_INVALID_ARG);
-            return false;
-        }
-        next.transaction_id = transaction_id;
-        next.target_generation = seed->target_generation;
-    }
-    if (left != nullptr) {
-        if (left->target_generation != next.target_generation) {
-            latchPairFault(PairFault::BoardFactMismatch, ESP_ERR_INVALID_STATE);
-            return false;
-        }
-        next.left = *left;
-    }
-    if (right != nullptr) {
-        if (right->target_generation != next.target_generation) {
-            latchPairFault(PairFault::BoardFactMismatch, ESP_ERR_INVALID_STATE);
-            return false;
-        }
-        next.right = *right;
-    }
-    if (completed != nullptr && completed->present) next.completed = *completed;
-    next.stage = stage;
-    if (!persistPairRecord(next)) return false;
-    return true;
-}
-
-bool pairFactFromStatus(const makcm::ota::StatusPayloadV2 &status,
-                        makcm::ota::Target expected_role,
-                        makcm::ota::PairBoardFact &fact) {
-    using namespace makcm::ota;
-    const uint16_t evidence = status.evidence_flags;
-    const bool active = (evidence & kEvidenceActivePresent) != 0;
-    const bool completed = (evidence & kEvidenceCompletedPresent) != 0;
-    if (status.role != expected_role || (!active && !completed) ||
-        status.record_sequence == 0)
-        return false;
-    std::memset(&fact, 0, sizeof(fact));
-    fact.present = true;
-    fact.role = status.role;
-    fact.identity_complete =
-        (evidence & kEvidenceIdentityDigestValid) != 0 &&
-        (status.target_slot != 0xFF) && (status.running_slot != 0xFF) &&
-        (status.boot_slot != 0xFF) &&
-        !snapshot::allZero(status.image_sha256, 32) &&
-        !snapshot::allZero(status.manifest_sha256, 32) &&
-        !snapshot::allZero(status.identity_digest, 32);
-    fact.local_validated = (evidence & kEvidenceLocalValidated) != 0;
-    fact.pair_committed = (evidence & kEvidencePairCommitted) != 0;
-    fact.local_phase = active
-                           ? status.local_phase
-                           : (status.completed_outcome ==
-                                      snapshot::Outcome::Confirmed
-                                  ? snapshot::Phase::PairCommitted
-                                  : snapshot::Phase::RolledBack);
-    fact.image_state = status.image_state;
-    fact.running_slot = status.running_slot;
-    fact.boot_slot = status.boot_slot;
-    fact.target_slot = status.target_slot;
-    fact.previous_slot = status.previous_slot;
-    fact.last_command = status.last_command;
-    fact.last_response_command = status.last_response_command;
-    fact.last_error = status.reason;
-    fact.completed_outcome = status.completed_outcome;
-    fact.completed_terminal_command = status.completed_terminal_command;
-    fact.protocol_epoch = status.protocol_epoch;
-    fact.transaction_id = active ? status.record_transaction_id
-                                 : status.completed_transaction_id;
-    fact.target_generation = status.target_generation;
-    fact.previous_generation = status.previous_generation;
-    fact.partition_schema = status.partition_schema;
-    fact.image_size = status.image_size;
-    fact.record_sequence = status.record_sequence;
-    fact.last_request_sequence = status.last_request_sequence;
-    fact.completed_transaction_id = status.completed_transaction_id;
-    fact.completed_terminal_sequence = status.completed_terminal_sequence;
-    if (fact.last_request_sequence == 0)
-        fact.last_request_sequence = fact.completed_terminal_sequence;
-    if (active && fact.completed_transaction_id != fact.transaction_id) {
-        fact.completed_outcome = makcm::ota::snapshot::Outcome::None;
-        fact.completed_terminal_command = static_cast<makcm::ota::Command>(0);
-        fact.completed_transaction_id = 0;
-        fact.completed_terminal_sequence = 0;
-    }
-    fact.reset_reason = status.reset_reason;
-    fact.last_ota_error = status.last_ota_error;
-    fact.last_state_query_error = status.last_state_query_error;
-    fact.boot_attempt = status.boot_attempt;
-    std::memcpy(fact.image_sha256, status.image_sha256, 32);
-    std::memcpy(fact.manifest_sha256, status.manifest_sha256, 32);
-    std::memcpy(fact.running_image_sha256, status.running_image_sha256, 32);
-    std::memcpy(fact.identity_digest, status.identity_digest, 32);
-    std::memcpy(fact.previous_image_sha256, status.previous_image_sha256, 32);
-    std::memcpy(fact.hardware_revision, status.hardware_revision,
-                sizeof(fact.hardware_revision));
-    std::memcpy(fact.project_name, status.project_name,
-                sizeof(fact.project_name));
-    std::memcpy(fact.app_version, status.app_version,
-                sizeof(fact.app_version));
-    return validPairBoardFact(fact, expected_role);
-}
-
-bool requestLocalStatusV2(const makcm::ota::Frame &request,
-                          makcm::ota::StatusPayloadV2 &status) {
-    std::memset(&pair_status_probe_request, 0,
-                sizeof(pair_status_probe_request));
-    std::memset(&pair_status_probe_response, 0,
-                sizeof(pair_status_probe_response));
-    // This is an in-process request to the left-board OTA participant.  Host
-    // is a valid response-routing target, not a valid request target for the
-    // left manager; using Host here makes every local Status V2 refresh fail
-    // with WrongTarget and strands the pair coordinator after PREPARE/ACTIVATE.
-    pair_status_probe_request.target = makcm::ota::Target::Left;
-    pair_status_probe_request.command = makcm::ota::Command::Status;
-    pair_status_probe_request.flags = makcm::ota::kFlagStatusV2;
-    pair_status_probe_request.transaction_id = request.transaction_id;
-    pair_status_probe_request.sequence = pair_status_probe_sequence++;
-    if (pair_status_probe_sequence == 0 || pair_status_probe_sequence == UINT32_MAX)
-        pair_status_probe_sequence = 1;
-    if (!ota_manager.handle(pair_status_probe_request, pair_status_probe_response,
-                            nowMs()) ||
-        (pair_status_probe_response.flags & makcm::ota::kFlagStatusV2) == 0)
-        return false;
-    return makcm::ota::decodeStatusV2(pair_status_probe_response.payload,
-                                      pair_status_probe_response.length,
-                                      status);
-}
-
-bool statusHasNoTransactionEvidence(
-    const makcm::ota::StatusPayloadV2 &status) {
-    return (status.evidence_flags &
-            (makcm::ota::kEvidenceActivePresent |
-             makcm::ota::kEvidenceCompletedPresent)) == 0 &&
-           status.target_generation == 0 &&
-           (status.state == makcm::ota::State::Idle ||
-            status.state == makcm::ota::State::Maintenance);
-}
-
-bool pairReadyForLeftConfirm() {
-    if (!pair_record_valid || pair_record_corrupt ||
-        !pair_record.left.present || !pair_record.right.present)
-        return false;
-    const auto &left = pair_record.left;
-    const auto &right = pair_record.right;
-    return left.identity_complete && right.identity_complete &&
-           left.local_validated && right.local_validated &&
-           right.pair_committed &&
-           left.transaction_id == pair_record.transaction_id &&
-           right.transaction_id == pair_record.transaction_id &&
-           left.target_generation == pair_record.target_generation &&
-           right.target_generation == pair_record.target_generation &&
-           right.running_slot == right.target_slot &&
-           right.boot_slot == right.target_slot && right.image_state == 2;
-}
-
-bool preparePairIntentForRequest(const makcm::ota::Frame &request) {
-    using namespace makcm::ota;
-    if (request.target != Target::Left && request.target != Target::Right)
-        return true;
-    const Target role = request.target;
-    if (request.command == Command::Manifest) {
-        // Each board's local A/B snapshot is the intent that must precede
-        // esp_ota_begin.  A pair intent here would be written before the board
-        // validates signature/hardware/project and lets a rejected manifest
-        // poison pair_a/pair_b indefinitely.  Record the board in the pair
-        // coordinator only after an exact Status V2 fact proves acceptance.
-        return true;
-    }
-    if (!pair_mode_active || !pair_record_valid) return true;
-
-    if (request.command == Command::Activate) {
-        PairBoardFact fact{};
-        if (role == Target::Left) {
-            // pair-prepare's final Status V2 can be lost together with the
-            // host process.  Refresh the left participant directly before
-            // persisting ACTIVATE intent instead of assuming the coordinator
-            // already cached that post-PREPARE fact.
-            StatusPayloadV2 local_status{};
-            if (!requestLocalStatusV2(request, local_status) ||
-                !pairFactFromStatus(local_status, Target::Left, fact))
-                return false;
-        } else {
-            fact = pair_record.right;
-        }
-        if (!fact.present || !fact.identity_complete ||
-            fact.transaction_id != request.transaction_id ||
-            fact.target_generation != pair_record.target_generation)
-            return false;
-        if (role == Target::Left &&
-            (!pair_record.right.present ||
-             !pair_record.right.identity_complete ||
-             !pair_record.right.local_validated ||
-             pair_record.right.transaction_id != request.transaction_id ||
-             pair_record.right.target_generation !=
-                 pair_record.target_generation))
-            return false;
-        fact.local_phase = snapshot::Phase::ActivateIntent;
-        fact.last_command = Command::Activate;
-        fact.last_request_sequence = request.sequence;
-        return mutatePairRecord(request.transaction_id,
-                                role == Target::Right
-                                    ? PairStage::RightActivateIntent
-                                    : PairStage::LeftActivateIntent,
-                                role == Target::Left ? &fact :
-                                                        (pair_record.left.present
-                                                             ? &pair_record.left
-                                                             : nullptr),
-                                role == Target::Right ? &fact :
-                                                         (pair_record.right.present
-                                                              ? &pair_record.right
-                                                              : nullptr),
-                                nullptr);
-    }
-    if (request.command == Command::Confirm) {
-        if (role == Target::Right) {
-            // Right confirms first.  At this point both images must already
-            // be locally validated, but right.pair_committed is expected to
-            // still be false: that fact is produced by the response to this
-            // very command, which the host observes directly now that the
-            // bridge relays right-board responses verbatim.
-            if (!pair_record.left.present || !pair_record.right.present ||
-                !pair_record.left.identity_complete ||
-                !pair_record.right.identity_complete ||
-                !pair_record.left.local_validated ||
-                !pair_record.right.local_validated ||
-                pair_record.left.transaction_id != request.transaction_id ||
-                pair_record.right.transaction_id != request.transaction_id ||
-                pair_record.left.target_generation !=
-                    pair_record.target_generation ||
-                pair_record.right.target_generation !=
-                    pair_record.target_generation)
-                return false;
-            return mutatePairRecord(request.transaction_id,
-                                    PairStage::PairCommitIntent,
-                                    &pair_record.left, &pair_record.right,
-                                    nullptr);
-        }
-        // The left ACTIVATE ACK is emitted before restart, so the coordinator
-        // copy of the left fact is necessarily pre-validation at that point.
-        // Refresh it from the local Status V2 authority before committing the
-        // pair intent; otherwise Confirm can never pass after a normal reboot.
-        makcm::ota::StatusPayloadV2 local_status{};
-        makcm::ota::PairBoardFact local_fact{};
-        if (!requestLocalStatusV2(request, local_status) ||
-            !pairFactFromStatus(local_status, Target::Left, local_fact) ||
-            !pair_record_valid || !pair_record.right.present ||
-            !local_fact.local_validated ||
-            !pair_record.right.local_validated ||
-            !pair_record.right.pair_committed ||
-            local_fact.transaction_id != request.transaction_id ||
-            pair_record.right.transaction_id != request.transaction_id ||
-            local_fact.target_generation != pair_record.target_generation ||
-            pair_record.right.target_generation !=
-                pair_record.target_generation)
-            return false;
-        return mutatePairRecord(request.transaction_id,
-                                PairStage::PairCommitIntent, &local_fact,
-                                &pair_record.right, nullptr);
-    }
-    if (request.command == Command::Abort) {
-        // An ABORT naming a transaction no board ever joined has no pair intent
-        // to record -- most often the recovery ABORT, which invents a fresh id
-        // precisely because the board holds no usable one.  Writing rollback
-        // intent for it would mean inventing a participant; refusing it would
-        // reject the one command that exists to clear a stuck board.  Neither:
-        // leave the record untouched and let the abort proceed.  Any record it
-        // leaves standing is still displaceable by the next transaction that
-        // does produce a fact.
-        const bool joined =
-            pair_record_valid &&
-            ((pair_record.left.present &&
-              pair_record.left.transaction_id == request.transaction_id) ||
-             (pair_record.right.present &&
-              pair_record.right.transaction_id == request.transaction_id));
-        if (!joined) return true;
-        return mutatePairRecord(request.transaction_id,
-                                PairStage::RollbackIntent,
-                                pair_record.left.present ? &pair_record.left
-                                                         : nullptr,
-                                pair_record.right.present ? &pair_record.right
-                                                          : nullptr,
-                                nullptr);
-    }
-    return true;
-}
-
-bool updatePairFromLocalStatus(const makcm::ota::Frame &request,
-                               makcm::ota::PairStage fallback_stage) {
-    makcm::ota::StatusPayloadV2 status{};
-    makcm::ota::PairBoardFact left{};
-    if (!requestLocalStatusV2(request, status) ||
-        !pairFactFromStatus(status, makcm::ota::Target::Left, left)) {
-        latchPairFault(PairFault::LocalStatusUnusable, ESP_ERR_INVALID_RESPONSE);
-        return false;
-    }
-    // Only a peer fact from *this* transaction may inform the stage.  A
-    // carried-over one answers questions like both_rolled_back and
-    // right->local_validated about a transaction that is already over.
-    const makcm::ota::PairBoardFact *right =
-        pair_record_valid && pair_record.right.present &&
-                pair_record.right.transaction_id == left.transaction_id
-            ? &pair_record.right
-            : nullptr;
-    makcm::ota::PairStage stage = fallback_stage;
-    makcm::ota::PairCompletedTombstone completed{};
-    const makcm::ota::PairCompletedTombstone *completed_ptr = nullptr;
-    const bool both_committed = right != nullptr && right->pair_committed &&
-                                left.pair_committed;
-    const bool both_rolled_back =
-        right != nullptr &&
-        right->local_phase == makcm::ota::snapshot::Phase::RolledBack &&
-        left.local_phase == makcm::ota::snapshot::Phase::RolledBack;
-    if (both_rolled_back) {
-        stage = makcm::ota::PairStage::RolledBack;
-        completed = makePairTombstone(
-            left, *right, makcm::ota::snapshot::Outcome::RolledBack,
-            makcm::ota::Command::Abort,
-            std::max(left.completed_terminal_sequence != 0
-                         ? left.completed_terminal_sequence
-                         : left.last_request_sequence,
-                     right->completed_terminal_sequence != 0
-                         ? right->completed_terminal_sequence
-                         : right->last_request_sequence));
-        completed_ptr = &completed;
-    } else if (left.local_phase ==
-                   makcm::ota::snapshot::Phase::RolledBack ||
-               left.local_phase ==
-                   makcm::ota::snapshot::Phase::RollbackIntent) {
-        stage = makcm::ota::PairStage::RollbackIntent;
-    } else if (left.local_phase == makcm::ota::snapshot::Phase::Failed) {
-        stage = makcm::ota::PairStage::MaintenanceRequired;
-    } else if (both_committed) {
-        stage = makcm::ota::PairStage::BothPairCommitted;
-    } else if (right != nullptr && right->local_validated &&
-               left.local_validated) {
-        stage = both_committed ? makcm::ota::PairStage::BothPairCommitted
-                               : makcm::ota::PairStage::BothLocalValidated;
-    } else if (left.local_phase ==
-                   makcm::ota::snapshot::Phase::ActivateIntent ||
-               left.local_phase ==
-                   makcm::ota::snapshot::Phase::BootSelected ||
-               left.local_phase ==
-                   makcm::ota::snapshot::Phase::PendingVerify) {
-        stage = right != nullptr && right->local_validated
-                    ? makcm::ota::PairStage::LeftActivateIntent
-                    : makcm::ota::PairStage::MaintenanceRequired;
-    } else if (left.local_phase == makcm::ota::snapshot::Phase::Receiving) {
-        stage = makcm::ota::PairStage::LeftPrepareIntent;
-    } else if (left.local_phase == makcm::ota::snapshot::Phase::Prepared) {
-        if (right != nullptr && right->local_validated)
-            stage = makcm::ota::PairStage::RightLocalValidated;
-        else if (right != nullptr &&
-                 right->local_phase ==
-                     makcm::ota::snapshot::Phase::Prepared)
-            stage = makcm::ota::PairStage::BothPrepared;
-        else
-            stage = makcm::ota::PairStage::MaintenanceRequired;
-    } else {
-        stage = makcm::ota::PairStage::MaintenanceRequired;
-    }
-    if (both_committed && completed_ptr == nullptr) {
-        completed = makePairTombstone(
-            left, *right, makcm::ota::snapshot::Outcome::Confirmed,
-            makcm::ota::Command::Confirm, request.sequence);
-        completed_ptr = &completed;
-    }
-    return mutatePairRecord(left.transaction_id, stage, &left, right,
-                            completed_ptr);
-}
-
-bool observeLocalOtaResponse(const makcm::ota::Frame &request,
-                             makcm::ota::Frame &response) {
-    if (response.transaction_id != request.transaction_id ||
-        response.sequence != request.sequence) {
-        latchPairFault(PairFault::ResponseCorrelationMismatch, ESP_ERR_INVALID_RESPONSE);
-        fillOtaControlResponse(request, makcm::ota::Command::Nack,
-                               makcm::ota::State::Fault,
-                               makcm::ota::NackReason::WrongTransaction, 0, 0,
-                               makcm::ota::build::kPairGeneration,
-                               makcm::ota::kStatusMaintenanceExclusive);
-        return false;
-    }
-    if (response.command == makcm::ota::Command::StatusResponse &&
-        request.command == makcm::ota::Command::Status &&
-        (response.flags & makcm::ota::kFlagStatusV2) != 0) {
-        makcm::ota::StatusPayloadV2 status{};
-        if (!makcm::ota::decodeStatusV2(response.payload, response.length,
-                                        status) ||
-            status.last_command != request.command ||
-            status.last_response_command != response.command) {
-            latchPairFault(PairFault::ResponseCorrelationMismatch, ESP_ERR_INVALID_RESPONSE);
-            return false;
-        }
-        // An idle board with no local evidence is a normal discovery or a
-        // rejected-MANIFEST recovery fact.  If only the right participant has
-        // joined, preserve that right fact instead of manufacturing a left
-        // participant or poisoning the coordinator.
-        if (statusHasNoTransactionEvidence(status)) {
-            const bool no_active_pair =
-                !pair_record_valid ||
-                pair_record.stage == makcm::ota::PairStage::None;
-            if ((!pair_mode_active && no_active_pair) ||
-                (pair_record_valid && !pair_record.left.present))
-                return true;
-        }
-        // A lone left transaction must never START pair mode.  The prepare
-        // flow's verification STATUS carries Prepared evidence; recording it
-        // as BothPrepared asserts a right participant that never joined, and
-        // the ACTIVATE pair gate then demands an impossible right fact
-        // (single-board left OTA NACKs CompatibilityRejected forever).  Only
-        // refresh facts once pair mode is already active.
-        if (!pair_mode_active) return true;
-        makcm::ota::PairBoardFact left{};
-        if (!pairFactFromStatus(status, makcm::ota::Target::Left, left)) {
-            latchPairFault(PairFault::LocalStatusUnusable, ESP_ERR_INVALID_RESPONSE);
-            return false;
-        }
-        // Reuse the same phase-aware transition mapping used after lifecycle
-        // ACKs.  A Receiving/Failed/Rollback fact must never be mislabeled as
-        // BothPrepared merely because the STATUS request succeeded.
-        return updatePairFromLocalStatus(request,
-                                         makcm::ota::PairStage::BothPrepared);
-    }
-    if (response.command != makcm::ota::Command::Ack) return true;
-    if (!pair_mode_active ||
-        (request.command != makcm::ota::Command::Prepare &&
-         request.command != makcm::ota::Command::Activate &&
-         request.command != makcm::ota::Command::Confirm &&
-         request.command != makcm::ota::Command::Abort))
-        return true;
-
-    makcm::ota::PairStage fallback = makcm::ota::PairStage::BothPrepared;
-    if (request.command == makcm::ota::Command::Activate)
-        fallback = makcm::ota::PairStage::LeftActivateIntent;
-    else if (request.command == makcm::ota::Command::Confirm)
-        fallback = makcm::ota::PairStage::BothPairCommitted;
-    else if (request.command == makcm::ota::Command::Abort)
-        fallback = makcm::ota::PairStage::RollbackIntent;
-    if (!updatePairFromLocalStatus(request, fallback)) {
-        fillOtaControlResponse(request, makcm::ota::Command::Nack,
-                               makcm::ota::State::Fault,
-                               makcm::ota::NackReason::FlashWriteFailed, 0, 0,
-                               makcm::ota::build::kPairGeneration,
-                               makcm::ota::kStatusMaintenanceExclusive);
-        return false;
-    }
-    // Preserve rollback evidence; never erase pair_a/pair_b.
-    return true;
-}
-
 void fillOtaControlResponse(const makcm::ota::Frame &request,
                             makcm::ota::Command command,
                             makcm::ota::State state,
@@ -1609,8 +746,8 @@ void fillOtaControlResponse(const makcm::ota::Frame &request,
     ota_control_response.transaction_id = request.transaction_id;
     ota_control_response.offset = next_offset;
     ota_control_response.sequence = request.sequence;
-    ota_control_response.length = makcm::ota::kStatusPayloadSize;
-    makcm::ota::StatusPayload payload{};
+    ota_control_response.length = makcm::ota::kCommandResponsePayloadSize;
+    makcm::ota::CommandResponsePayload payload{};
     payload.state = state;
     payload.last_command = request.command;
     payload.reason = reason;
@@ -1618,13 +755,14 @@ void fillOtaControlResponse(const makcm::ota::Frame &request,
     payload.target_generation = target_generation;
     payload.active_generation = active_generation;
     payload.status_flags = flags;
-    makcm::ota::encodeStatusPayload(payload, ota_control_response.payload);
+    makcm::ota::encodeCommandResponsePayload(payload,
+                                              ota_control_response.payload);
 }
 
 void sendOtaNack(const makcm::ota::Frame &request,
                  makcm::ota::NackReason reason) {
     fillOtaControlResponse(
-        request, makcm::ota::Command::Nack, makcm::ota::State::Fault,
+        request, makcm::ota::Command::Nack, makcm::ota::State::Idle,
         reason, 0, 0, makcm::ota::build::kPairGeneration,
         ota_quiesced.load(std::memory_order_acquire)
             ? static_cast<uint32_t>(
@@ -1634,15 +772,8 @@ void sendOtaNack(const makcm::ota::Frame &request,
 }
 
 bool otaQuiesce(void *) {
-    ota_unpaired_idle_release_authorized.store(false,
-                                                std::memory_order_release);
+    ota_release_authorized.store(false, std::memory_order_release);
     ota_quiesced.store(true, std::memory_order_release);
-    // Arm the release cadence from the moment the data plane closes.  The
-    // retry loop only runs while right_link_reset_at_ms is non-zero, so a
-    // quiesce whose right board never answers would otherwise never even
-    // evaluate tryReleaseOtaQuiesce().  The predicate there does all the
-    // gating; arming early only decides when it is asked.
-    right_link_reset_at_ms.store(nowMs() + 250, std::memory_order_release);
     secondary.setOtaMaintenance(true);
     proxy_state.store(ProxyState::Disconnecting, std::memory_order_release);
     if (usb_installed.load(std::memory_order_acquire)) disconnectUsb();
@@ -1652,53 +783,23 @@ bool otaQuiesce(void *) {
     return !usb_installed.load(std::memory_order_acquire);
 }
 
-// Release the two UART maintenance gates only after the local updater and
-// pair transaction have both reached a completed state.  This is deliberately
-// separate from otaQuiesce(): a right-board STATUS/CONFIRM response may arm
-// right_link_reset_at_ms, but a failed bootstrap that never quiesced the
-// whole proxy must not accidentally reopen the data plane.
+// Release the two UART maintenance gates only after the selected board has
+// reached an exact terminal state.  This is deliberately separate from
+// otaQuiesce(): only an exact terminal ACK arms right_link_reset_at_ms, and a
+// failed bootstrap that never quiesced the whole proxy cannot accidentally
+// reopen the data plane.
 bool tryReleaseOtaQuiesce() {
     if (!ota_quiesced.load(std::memory_order_acquire) ||
         usb_installed.load(std::memory_order_acquire) ||
-        ota_manager.maintenanceExclusive() ||
-        pair_record_corrupt || pending_right_request_valid) {
+        ota_manager.maintenanceExclusive() || right_response_expected ||
+        pending_right_request_valid) {
         return false;
     }
 
-    // Retain the exact completed tombstone for lost-ACK and reboot
-    // reconciliation.  A pair update releases only from its exact tombstone.
-    // A board-only/empty session may release only after the exact response
-    // path below explicitly authorizes an Idle/no-pair state.
-    const bool exact_pair_terminal =
-        pair_record_valid &&
-        (makcm::ota::pairRecordHasExactPairCommit(pair_record) ||
-         makcm::ota::pairRecordHasExactPairRollback(pair_record));
-    const bool exact_unpaired_idle =
-        (!pair_record_valid ||
-         pair_record.stage == makcm::ota::PairStage::None) &&
-        !pair_record_corrupt &&
-        ota_unpaired_idle_release_authorized.load(std::memory_order_acquire) &&
+    const bool terminal_idle =
+        ota_release_authorized.load(std::memory_order_acquire) &&
         ota_manager.state() == makcm::ota::State::Idle;
-    // A quiesce armed purely to bootstrap the right board must not be able to
-    // outlive that bootstrap.  otaQuiesce() closes the CH343 text plane
-    // (Secondary drops every text line while its maintenance bit is set), and
-    // an Idle left board holds no transaction, so the manager NACKs ABORT as
-    // WrongTransaction.  Once the right side stops answering there is then
-    // nothing the host can send that reopens the data plane, and only a
-    // physical power cycle recovers it -- with Windows passthrough down the
-    // whole time.
-    //
-    // Waiting for a peer fact is only meaningful once something was forwarded
-    // that the peer could still be executing.  HELLO/ENTER/STATUS cannot leave
-    // an image in flight, so a session that forwarded nothing else has no peer
-    // work to wait for and the local Idle facts are the complete truth.
-    const bool bootstrap_only_session =
-        !right_image_traffic_forwarded &&
-        ota_manager.state() == makcm::ota::State::Idle &&
-        (!pair_record_valid ||
-         pair_record.stage == makcm::ota::PairStage::None);
-    if (!exact_pair_terminal && !exact_unpaired_idle && !bootstrap_only_session)
-        return false;
+    if (!terminal_idle) return false;
 
     if (!bridge.setOtaMaintenance(false)) return false;
     secondary.setOtaMaintenance(false);
@@ -1707,37 +808,26 @@ bool tryReleaseOtaQuiesce() {
     pending_right_request_started_ms = 0;
     right_maintenance_transaction = 0;
     right_response_expected = false;
+    right_response_started_ms = 0;
     right_expected_transaction = 0;
     right_expected_sequence = 0;
-    right_image_traffic_forwarded = false;
+    right_expected_command = makcm::ota::Command::Hello;
     active_session.store(0, std::memory_order_release);
     pending_session.store(0, std::memory_order_release);
     accepted_session.store(0, std::memory_order_release);
     right_link_reset_at_ms.store(0, std::memory_order_release);
-    ota_unpaired_idle_release_authorized.store(false,
-                                                std::memory_order_release);
+    ota_release_authorized.store(false, std::memory_order_release);
     ota_quiesced.store(false, std::memory_order_release);
     proxy_state.store(ProxyState::WaitingProfile, std::memory_order_release);
     return true;
 }
 
-bool otaPairHealth(void *) {
-    // Pair health is a fact gate, not a generation/flag hint.  Before left
-    // Confirm, right must already have its exact committed tombstone and both
-    // local-valid facts; release uses the stricter both-committed predicate.
-    // A lone left transaction never joined the pair coordinator (see the
-    // observeLocalOtaResponse guard), so it has no pair fact to satisfy --
-    // demanding one made single-board left Confirm structurally impossible.
-    if (!pair_mode_active) return bridge.running();
-    return pairReadyForLeftConfirm() && bridge.running();
+bool otaPeerHealth(void *) {
+    return bridge.running();
 }
 
 bool otaLocalHealth(void *) {
-    // This gate is set only after NVS, pair transaction recovery, trust anchor
-    // and the OTA local record have all initialized. Controller, UART1 and
-    // peer state remain pair/data-plane concerns and cannot kill this slot.
-    return ota_boot_prerequisites_ready.load(std::memory_order_acquire) &&
-           ota_manager.state() != makcm::ota::State::Fault;
+    return ota_boot_prerequisites_ready.load(std::memory_order_acquire);
 }
 
 bool forwardRightOtaRequest(const makcm::ota::Frame &request) {
@@ -1748,23 +838,28 @@ bool forwardRightOtaRequest(const makcm::ota::Frame &request) {
     case makcm::ota::Command::Activate:
     case makcm::ota::Command::Confirm:
     case makcm::ota::Command::Abort:
-        right_image_traffic_forwarded = true;
+        ota_release_authorized.store(false, std::memory_order_release);
         break;
     default:
         break;
     }
     right_response_expected = true;
+    right_response_started_ms = nowMs();
     right_expected_transaction = request.transaction_id;
     right_expected_sequence = request.sequence;
+    right_expected_command = request.command;
     if (bridge.sendOta(request)) return true;
     right_response_expected = false;
+    right_response_started_ms = 0;
+    right_expected_transaction = 0;
+    right_expected_sequence = 0;
+    right_expected_command = makcm::ota::Command::Hello;
     return false;
 }
 
 bool startRightMaintenanceBootstrap(const makcm::ota::Frame &request) {
     if (request.transaction_id == 0) return false;
-    ota_unpaired_idle_release_authorized.store(false,
-                                                std::memory_order_release);
+    ota_release_authorized.store(false, std::memory_order_release);
     if (pending_right_request_valid) {
         // OtaClient retransmits the same sequence after a timeout.  The right
         // USB Host may still be completing its bounded teardown, so an exact
@@ -1859,12 +954,9 @@ bool handleOtaBridgeTextLine(const char *line) {
         makcm::ota::Command::EnterMaintenance) {
         fillOtaControlResponse(
             pending_right_request, makcm::ota::Command::Ack,
-            makcm::ota::State::Maintenance, makcm::ota::NackReason::None,
+            makcm::ota::State::Idle, makcm::ota::NackReason::None,
             0, 0, 0, makcm::ota::kStatusMaintenanceExclusive);
         secondary.sendOtaFrame(ota_control_response);
-    } else if (!preparePairIntentForRequest(pending_right_request)) {
-        sendOtaNack(pending_right_request,
-                    makcm::ota::NackReason::CompatibilityRejected);
     } else if (!forwardRightOtaRequest(pending_right_request)) {
         sendOtaNack(pending_right_request, makcm::ota::NackReason::Busy);
     }
@@ -1886,12 +978,18 @@ void bridgeOtaFrame(void *, const makcm::ota::Frame &frame) {
         xSemaphoreGive(ota_mutex);
         return;
     }
+    const makcm::ota::Command expected_command = right_expected_command;
     right_response_expected = false;
+    right_response_started_ms = 0;
+    right_expected_transaction = 0;
+    right_expected_sequence = 0;
+    right_expected_command = makcm::ota::Command::Hello;
     // Host-driven relay: the host owns response interpretation. Decode Status
     // V2 only to refresh cached right-board diagnostics and the release
     // predicates below; never veto, persist, or replace the peer's answer.
-    // Vetoing here manufactured a V1 NACK the Status-V2 host filter drops
-    // (host sees only a timeout) and latched a quiesce with no exit.
+    // Vetoing here manufactured a command-response NACK without Status V2;
+    // the detailed-status host filter drops it, sees only a timeout, and
+    // leaves the quiesce latched with no exit.
     makcm::ota::StatusPayloadV2 status_v2{};
     const bool valid_status_v2 =
         frame.command == makcm::ota::Command::StatusResponse &&
@@ -1900,43 +998,48 @@ void bridgeOtaFrame(void *, const makcm::ota::Frame &frame) {
     if (valid_status_v2) {
         right_ota_state.store(static_cast<uint8_t>(status_v2.state),
                               std::memory_order_release);
-        right_active_generation.store(status_v2.active_generation,
-                                      std::memory_order_release);
+        right_running_generation.store(status_v2.running_generation,
+                                       std::memory_order_release);
         right_status_flags.store(status_v2.status_flags,
                                  std::memory_order_release);
     }
-    const bool idle_maintenance_status = valid_status_v2 &&
-        status_v2.state == makcm::ota::State::Maintenance &&
-        status_v2.target_generation == 0 &&
-         (status_v2.status_flags &
-          (makcm::ota::kStatusPrepared |
-           makcm::ota::kStatusPendingVerify)) == 0;
-    const bool exact_pair_completed = valid_status_v2 &&
-        makcm::ota::pairRecordHasExactPairCommit(pair_record) &&
-        status_v2.completed_transaction_id == pair_record.transaction_id &&
-        status_v2.completed_outcome ==
-            makcm::ota::snapshot::Outcome::Confirmed;
-    const bool exact_unpaired_terminal =
-        (!pair_record_valid ||
-         pair_record.stage == makcm::ota::PairStage::None) &&
-        !pair_record_corrupt &&
-        idle_maintenance_status;
-    if (exact_unpaired_terminal) {
-        ota_unpaired_idle_release_authorized.store(
-            true, std::memory_order_release);
+    makcm::ota::CommandResponsePayload terminal_status{};
+    const bool valid_correlated_ack =
+        frame.command == makcm::ota::Command::Ack &&
+        frame.flags == makcm::ota::kFlagResponse &&
+        makcm::ota::decodeCommandResponsePayload(
+            frame.payload, frame.length, terminal_status) &&
+        terminal_status.last_command == expected_command &&
+        terminal_status.reason == makcm::ota::NackReason::None;
+    const bool exact_exit_ack = valid_correlated_ack &&
+        expected_command == makcm::ota::Command::ExitMaintenance &&
+        frame.offset == terminal_status.next_offset;
+    const bool exact_terminal_ack = valid_correlated_ack &&
+        frame.offset == 0 && terminal_status.next_offset == 0 &&
+        terminal_status.target_generation == 0 &&
+         ((expected_command == makcm::ota::Command::Abort &&
+           (terminal_status.state == makcm::ota::State::Idle ||
+            terminal_status.state == makcm::ota::State::PendingConfirm)) ||
+         (expected_command == makcm::ota::Command::Confirm &&
+          terminal_status.state == makcm::ota::State::Idle));
+    const bool exact_activate_ack = valid_correlated_ack &&
+        expected_command == makcm::ota::Command::Activate &&
+        terminal_status.state == makcm::ota::State::Prepared;
+    // Only an exact correlated ACK for an explicit terminal command can
+    // authorize release. STATUS is observational even when it reports Idle.
+    if (exact_exit_ack || exact_terminal_ack) {
+        ota_release_authorized.store(true, std::memory_order_release);
+        right_link_reset_at_ms.store(nowMs() + 250,
+                                     std::memory_order_release);
     }
-    // A V1 ACK carries no transaction/image identity, so it can never prove a
-    // terminal outcome or authorize a release.  V1 remains readable purely for
-    // discovery of an old peer; only exact Status V2 facts release the bridge.
-    if (idle_maintenance_status || exact_pair_completed) {
-            // ACTIVATE is deliberately excluded.  The right board reboots
-            // into AwaitConfirm while retaining exclusive binary UART1
-            // ownership; releasing the bridge after 250 ms would make the
-            // host's post-reboot STATUS fall back to a text bootstrap that
-            // the right receiver cannot consume.  Keep the binary channel
-            // until left activation/reboot restores it from the pair record.
-            right_link_reset_at_ms.store(nowMs() + 250,
-                                         std::memory_order_release);
+    if (exact_exit_ack || exact_terminal_ack || exact_activate_ack) {
+        // These ACKs all end the right board's current binary session. Reopen
+        // only UART1's mixed text/bootstrap gate and forget the old session;
+        // CH343 and the global proxy stay quiesced until the scheduled release
+        // or the host's next STATUS/EXIT cycle proves the terminal facts.
+        if (!bridge.setOtaMaintenance(false))
+            ESP_LOGW(kTag, "failed to reset completed right OTA session");
+        right_maintenance_transaction = 0;
     }
     secondary.sendOtaFrame(frame);
     xSemaphoreGive(ota_mutex);
@@ -1947,47 +1050,22 @@ void secondaryOtaFrame(void *, const makcm::ota::Frame &frame) {
         xSemaphoreTake(ota_mutex, pdMS_TO_TICKS(500)) != pdTRUE) return;
     if (frame.target == makcm::ota::Target::Left) {
         if (frame.command != makcm::ota::Command::Hello &&
-            frame.command != makcm::ota::Command::Status &&
-            frame.command != makcm::ota::Command::Abort &&
-            frame.command != makcm::ota::Command::Confirm) {
-            ota_unpaired_idle_release_authorized.store(
-                false, std::memory_order_release);
+            frame.command != makcm::ota::Command::Status) {
+            ota_release_authorized.store(false, std::memory_order_release);
         }
         if (!ota_ready.load(std::memory_order_acquire)) {
             sendOtaNack(frame, makcm::ota::NackReason::RollbackUnavailable);
-        } else if (!preparePairIntentForRequest(frame)) {
-            sendOtaNack(frame, makcm::ota::NackReason::CompatibilityRejected);
         } else {
-            // Preserve pair evidence until rollback is durably observable.
-            // Clearing it before the rollback call makes ACK loss and a reset
-            // indistinguishable from a completed rollback.
             ota_manager.handle(frame, ota_control_response, nowMs());
-            (void)observeLocalOtaResponse(frame, ota_control_response);
-            const bool exact_pair_terminal =
-                pair_record_valid &&
-                (makcm::ota::pairRecordHasExactPairCommit(pair_record) ||
-                 makcm::ota::pairRecordHasExactPairRollback(pair_record));
-            if (exact_pair_terminal) {
-                // The right CONFIRM ACK may have been lost.  In that replay
-                // path the final left fact is what completes the pair record,
-                // so arm release here instead of relying on another right
-                // response that may never arrive.
-                right_link_reset_at_ms.store(nowMs() + 250,
-                                             std::memory_order_release);
-            }
-            const bool exact_unpaired_terminal =
-                (!pair_record_valid ||
-                 pair_record.stage == makcm::ota::PairStage::None) &&
-                !pair_record_corrupt &&
+            const bool exact_terminal =
                 ota_control_response.command == makcm::ota::Command::Ack &&
                 ota_control_response.transaction_id == frame.transaction_id &&
                 ota_control_response.sequence == frame.sequence &&
                 (frame.command == makcm::ota::Command::Abort ||
                  frame.command == makcm::ota::Command::Confirm) &&
                 ota_manager.state() == makcm::ota::State::Idle;
-            if (exact_unpaired_terminal) {
-                ota_unpaired_idle_release_authorized.store(
-                    true, std::memory_order_release);
+            if (exact_terminal) {
+                ota_release_authorized.store(true, std::memory_order_release);
                 right_link_reset_at_ms.store(nowMs() + 250,
                                              std::memory_order_release);
             }
@@ -1995,14 +1073,16 @@ void secondaryOtaFrame(void *, const makcm::ota::Frame &frame) {
         }
     } else if (frame.target == makcm::ota::Target::Right) {
         if (bridge.otaMaintenance() &&
-            frame.transaction_id == right_maintenance_transaction) {
-            if (!preparePairIntentForRequest(frame))
-                sendOtaNack(frame, makcm::ota::NackReason::CompatibilityRejected);
-            else if (!forwardRightOtaRequest(frame))
+             (frame.command == makcm::ota::Command::Status ||
+              frame.command == makcm::ota::Command::ExitMaintenance ||
+              frame.command == makcm::ota::Command::Abort ||
+              frame.transaction_id == right_maintenance_transaction)) {
+            if (!forwardRightOtaRequest(frame))
                 sendOtaNack(frame, makcm::ota::NackReason::Busy);
         } else if (frame.command == makcm::ota::Command::EnterMaintenance ||
                    frame.command == makcm::ota::Command::Hello ||
-                   frame.command == makcm::ota::Command::Status) {
+                   frame.command == makcm::ota::Command::Status ||
+                   frame.command == makcm::ota::Command::ExitMaintenance) {
             if (!startRightMaintenanceBootstrap(frame))
                 sendOtaNack(frame, makcm::ota::NackReason::Busy);
         } else {
@@ -2289,10 +1369,6 @@ extern "C" void app_main(void) {
     ota_mutex = xSemaphoreCreateMutex();
     const esp_err_t nvs_result = nvs_flash_init();
     if (ota_mutex != nullptr && nvs_result == ESP_OK) {
-        if (!initPairStore()) {
-            pair_record_corrupt = true;
-            ota_quiesced.store(true, std::memory_order_release);
-        }
         makcm::native::OtaUpdateConfig ota_config{};
         ota_config.role = makcm::ota::Target::Left;
         ota_config.protocol_version = makcm::ota::board::kPairProtocolVersion;
@@ -2303,11 +1379,8 @@ extern "C" void app_main(void) {
         ota_config.hardware_revision =
             makcm::ota::board::kHardwareRevisionR1;
         ota_config.project_name = makcm::ota::board::kLeftProjectName;
-        // A one-generation-compatible pair migration can temporarily boot
-        // the new left gateway while the old right receiver is still being
-        // prepared.  Keep rollback armed, but allow enough time for the
-        // relayed right-board write/reboot/health handshake before confirming
-        // left last.
+        // Leave enough time for an explicitly selected board to reboot and
+        // report its post-activation health before the host confirms it.
         ota_config.confirm_timeout_ms = 120000;
         std::memcpy(ota_config.trust.key_id,
                     makcm::ota::trust::kSignerKeyId,
@@ -2320,15 +1393,13 @@ extern "C" void app_main(void) {
                     sizeof(ota_config.trust.public_y));
         ota_config.quiesce = &otaQuiesce;
         ota_config.local_health_check = &otaLocalHealth;
-        ota_config.pair_health_check = &otaPairHealth;
+        ota_config.peer_health_check = &otaPeerHealth;
         ota_ready.store(ota_manager.begin(ota_config, nowMs()),
                         std::memory_order_release);
         ota_boot_prerequisites_ready.store(
             ota_ready.load(std::memory_order_acquire),
             std::memory_order_release);
-        if (ota_manager.maintenanceExclusive() ||
-            (pair_record_valid &&
-             makcm::ota::pairRecordRequiresHostReconcile(pair_record)))
+        if (ota_manager.maintenanceExclusive())
             ota_quiesced.store(true, std::memory_order_release);
     } else {
         ESP_LOGE(kTag, "OTA disabled: NVS/mutex init failed err=%s",
@@ -2377,7 +1448,7 @@ extern "C" void app_main(void) {
         ESP_LOGE(kTag, "secondary UART startup failed");
         // A data/control UART failure must not undo an image that already
         // crossed the local boot-valid boundary. Remain fail-closed and keep
-        // the exact OTA/pair evidence for an explicit recovery decision.
+        // the exact local OTA evidence for an explicit recovery decision.
         ota_quiesced.store(true, std::memory_order_release);
         return;
     }
@@ -2396,36 +1467,11 @@ extern "C" void app_main(void) {
     bridge_config.tx_buffer_size = 8192;
     bridge_config.event_queue_size = 64;
     bridge_config.tx_queue_size = 128;
-    // OTA bootstrap text lines are handled on makcm_bridge_rx and can run the
-    // pair-persistence path inline: handleOtaBridgeTextLine ->
-    // preparePairIntentForRequest -> mutatePairRecord -> persistPairRecord.
-    // That path carries three PairTransactionRecord objects on the stack
-    // (mutate's working copy, persist's by-value parameter, and its `verified`
-    // readback) on top of the NVS set/commit/get internals.  The 6144 default
-    // overflowed and tripped the end-of-stack watchpoint (DebugException in
-    // persistPairRecord), which reads from the host as "the peer never
-    // answered".  The secondary task was already raised to 12288 for the same
-    // class of problem; both tasks enter this same OTA path, so both must be
-    // sized for it.
-    bridge_config.task_stack = 12288;
     if (!bridge.begin(bridge_config, &handleBridgeFrame, &bridgeText,
                       &bridgeOtaFrame)) {
         ESP_LOGE(kTag, "bridge UART startup failed");
         secondary.stop();
         return;
-    }
-    if (pair_record_valid &&
-        makcm::ota::pairRecordRequiresHostReconcile(pair_record)) {
-        // Any unfinished V2 record is a host-reconcile hand-off.  Restore
-        // binary maintenance ownership, but do not guess a Continue/Rollback
-        // action locally; Linux must query exact right-board facts first.
-        right_maintenance_transaction = pair_record.transaction_id;
-        ota_quiesced.store(true, std::memory_order_release);
-        secondary.setOtaMaintenance(true);
-        if (!bridge.setOtaMaintenance(true)) {
-            ota_quiesced.store(true, std::memory_order_release);
-            ESP_LOGE(kTag, "failed to restore pair-confirm UART maintenance");
-        }
     }
     xTaskCreatePinnedToCore(&inputMonitorTask, "makcm_input_monitor", 2048,
                             nullptr, 4, nullptr, 1);
@@ -2448,10 +1494,9 @@ extern "C" void app_main(void) {
             ota_mutex != nullptr &&
             xSemaphoreTake(ota_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
             if (!tryReleaseOtaQuiesce()) {
-                // Keep retrying the guarded release while an unfinished pair
-                // stage or local PendingConfirm state is still present.  Use
+                // Keep retrying while the selected board is not yet idle. Use
                 // a bounded retry cadence instead of logging every 10 ms.
-                ESP_LOGW(kTag, "OTA release deferred: local/pair state not complete");
+                ESP_LOGW(kTag, "OTA release deferred: board state not complete");
                 right_link_reset_at_ms.store(
                     ota_quiesced.load(std::memory_order_acquire)
                         ? loop_now + 250
@@ -2480,6 +1525,30 @@ extern "C" void app_main(void) {
             pending_right_request_valid = false;
             pending_right_request_started_ms = 0;
             right_maintenance_transaction = 0;
+            xSemaphoreGive(ota_mutex);
+        }
+        if (right_response_expected && right_response_started_ms != 0 &&
+            loop_now - right_response_started_ms > kRightResponseTimeoutMs &&
+            ota_mutex != nullptr &&
+            xSemaphoreTake(ota_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+            if (right_response_expected && right_response_started_ms != 0 &&
+                loop_now - right_response_started_ms >
+                    kRightResponseTimeoutMs) {
+                // The binary request or response was lost. Drop only UART1's
+                // peer gate so the next STATUS/EXIT can bootstrap over text;
+                // global/secondary quiesce remains fail-closed until an exact
+                // terminal ACK arrives.
+                if (!bridge.setOtaMaintenance(false))
+                    ESP_LOGW(kTag, "failed to reset timed-out right OTA gate");
+                right_response_expected = false;
+                right_response_started_ms = 0;
+                right_expected_transaction = 0;
+                right_expected_sequence = 0;
+                right_expected_command = makcm::ota::Command::Hello;
+                right_maintenance_transaction = 0;
+                ota_release_authorized.store(false,
+                                             std::memory_order_release);
+            }
             xSemaphoreGive(ota_mutex);
         }
         bool restart_left = false;

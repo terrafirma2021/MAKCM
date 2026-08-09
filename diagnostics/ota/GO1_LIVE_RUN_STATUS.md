@@ -21,4 +21,4 @@
 2. 脚本 Abort→Idle→Prepare→Activate gen16
 3. 再主动断电，验证 gen16 仍 `active=16, local_boot_validated=true`（真正关闭 GO-1）
 
-后台：`python diagnostics/ota/go1_gen16_wait_and_ota.py`
+当时后台操作入口已随旧协议脚本移除；本文件仅保留该次升级的历史记录。

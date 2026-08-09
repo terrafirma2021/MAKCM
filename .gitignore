@@ -11,6 +11,9 @@ __pycache__/
 merged_firmware/
 MAKCM_ESP32s3_Device_Mouse_Left_IDF/build/
 MAKCM_ESP32s3_Device_Mouse_Left_IDF/managed_components/
+MAKCM_ESP32s3_HID_Mouse_Right/build/
+MAKCM_ESP32s3_HID_Mouse_Right/managed_components/
+MAKCM_ESP32s3_HID_Mouse_Right/sdkconfig
 
 # Bulky raw diagnostic captures (USB installs, wire traces, freeze snapshots).
 diagnostics/ds02_install/

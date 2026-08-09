@@ -5,17 +5,9 @@
 
 Welcome to the MAKCU 2024 project! This is a new open-source implementation for remote injection of mouse control with passthrough, featuring dual ESP32-S3 microcontrollers based on RTOS and advanced task management over the traditional loop.
 
-~~- To switch internal Phy to OTG disabling cdc/jtag on boot, please run the OTG bat file on both the left, then the right mcu port!~~  
-~~- To flash hold down boot button, then insert USB Cable~~  
-~~- The bat file will enable automatic install of python~~  
-~~- automatic install of the espidf python toolset~~  
-~~- Will then be asked to input com name ( please enter as COM??)~~  
-~~- Tool will then start and ask you to type BURN in caps~~  
-~~- Once mcu is switched you will not see further connections unless boot button is held down upon inserting, this is correct~~  
-~~- To flash bin, just hold boot upon inserting cable, mcu will boot cdc as normal, enjoy!~~
-
-**Update:**  
-- Now included inside the firmware! Automatic PHY switch (EFUSE) on 1st boot!! Happens one time.
+The firmware performs the one-time internal-PHY eFuse setup automatically on
+first boot. Normal signed pair OTA does not require holding BOOT or reconnecting
+either board in ROM download mode.
 
 
 ## Key Features
@@ -27,7 +19,8 @@ Welcome to the MAKCU 2024 project! This is a new open-source implementation for 
 - **Descriptor-Driven Proxy**: Supports compatible mice, keyboards, HID
   controllers, DSE and raw vendor/XInput-style interfaces without selecting a
   firmware personality by VID/PID.
-- **Internal PHY in OTG Mode**: !Requires efuse burn!, ensuring the device no longer appears as anything other than device on boot.
+- **Internal PHY in OTG Mode**: The firmware performs the required one-time
+  eFuse setup on first boot.
 - **Ample Storage**: 
   - 4MB Quad SPI Flash per MCU
   - 2MB PSRAM per MCU
@@ -92,9 +85,12 @@ PC/XIM endpoint/control output <- same endpoint/control transaction tunnel -> de
 
 ### Build verification
 
+Both firmware projects use the same ESP-IDF 5.5.4 toolchain. The right project
+locks Arduino-ESP32 3.3.10 as an ESP-IDF managed component.
+
 ```bash
-platformio run --project-dir MAKCM_ESP32s3_Device_Mouse_Left -j 1
-platformio run --project-dir MAKCM_ESP32s3_HID_Mouse_Right -j 1
+idf.py -C MAKCM_ESP32s3_HID_Mouse_Right build
+idf.py -C MAKCM_ESP32s3_Device_Mouse_Left_IDF build
 for src in tests/test_bridge_protocol.cpp tests/test_endpoint_tx_phase.cpp \
            tests/test_hid_mouse_report.cpp \
            tests/test_mouse_injection_ledger.cpp; do
@@ -107,31 +103,6 @@ done
 The scheduler, Windows/XInput boundary, supported USB matrix, identity limits
 and stress-test gates are documented in
 [`docs/PROXY_ARCHITECTURE_AND_ACCEPTANCE.md`](docs/PROXY_ARCHITECTURE_AND_ACCEPTANCE.md).
-
-### Native left-board bring-up (parallel rollback target)
-
-The descriptor-driven RAW composite proxy is being brought up in
-[`MAKCM_ESP32s3_Device_Mouse_Left_IDF`](MAKCM_ESP32s3_Device_Mouse_Left_IDF),
-separate from the flashable Arduino/V1.6 image.  The implementation plan,
-endpoint ownership rules, EP0 deferred-control flow, and T1--T8 acceptance
-gates are in
-[`docs/LEFT_NATIVE_USB_MIGRATION_PLAN.md`](docs/LEFT_NATIVE_USB_MIGRATION_PLAN.md).
-
-```bash
-cd MAKCM_ESP32s3_Device_Mouse_Left_IDF
-idf.py set-target esp32s3
-idf.py reconfigure       # resolves idf_component.yml; commit dependencies.lock
-idf.py build
-idf.py -p COMx flash monitor
-```
-
-PlatformIO users can invoke the optional wrapper with
-`platformio run --project-dir MAKCM_ESP32s3_Device_Mouse_Left_IDF`; it may
-download `framework-espidf` into the local cache.  Do not flash this target
-until the profile-validator and four-IN/two-OUT host tests pass.  The optional
-`tests/usb_host_harness.py` script reads each interrupt IN endpoint in its own
-thread and reports per-endpoint progress, which is the quickest check for the
-original XInput/mouse starvation symptom.
 
 ## Updates
 

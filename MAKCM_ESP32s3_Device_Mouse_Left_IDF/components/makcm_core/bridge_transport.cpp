@@ -196,8 +196,8 @@ bool BridgeTransport::sendOtaText(const char *text) {
     // startRightMaintenanceBootstrap() is reached precisely when maintenance is
     // held for a *different* transaction, so the one message that can retarget
     // the link was suppressed by the very latch it exists to clear.  The host
-    // saw only "timed out", because the resulting V1 Busy NACK is dropped by
-    // the tool's Status-V2 filter.
+    // saw only "timed out", because the resulting compact command-response
+    // Busy NACK did not complete the requested right-board bootstrap.
     //
     // Written synchronously under the tx mutex instead of through tx_queue_,
     // because txTask() discards queued items while maintenance is held.  The

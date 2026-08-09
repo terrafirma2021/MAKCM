@@ -3,8 +3,6 @@
 
 #include <Arduino.h>
 #include <usb/usb_host.h>
-#include <class/hid/hid.h>
-#include <rom/usb/usb_common.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/event_groups.h>
@@ -13,10 +11,10 @@
 #include <atomic>
 #include <ArduinoJson.h>
 #include <string>
-#include <RingBuf.h>
 #include "BridgeProtocol.h"
 #include "DualSenseControllerAdapter.h"
 #include "OtaReceiver.h"
+#include "UsbHidTypes.h"
 
 #define LOG_LEVEL_OFF    0
 #define LOG_LEVEL_FIXED  1
@@ -35,8 +33,6 @@
 
 void flashLEDToggleTask(void *parameter);
 extern SemaphoreHandle_t ledSemaphore;
-
-extern RingBuf<char, 512> rxBuffer;    // RX Buffer for incoming data
 
 class EspUsbHost
 {
@@ -110,6 +106,7 @@ public:
     // while the USB client task tears the physical device down; otherwise it
     // cannot consume DeviceGoneAccepted and cleanup waits on itself.
     static constexpr uint32_t kOtaBootstrapWaitMs = 3500;
+    static constexpr uint32_t kEnumerationWaitMs = 5000;
     volatile bool otaBootstrapPending = false;
     volatile uint32_t otaBootstrapTransaction = 0;
     volatile uint32_t otaBootstrapPeerGeneration = 0;
@@ -466,9 +463,11 @@ public:
    HIDReportDescriptor parseHIDReportDescriptor(uint8_t *data, int length);
     virtual void onReceive(const usb_transfer_t *transfer) {};
     virtual void onGone(const usb_host_client_event_msg_t *eventMsg) {};
-    virtual void onMouse(hid_mouse_report_t report, uint8_t last_buttons);
-    virtual void onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons);
-    virtual void onMouseMove(hid_mouse_report_t report);
+    virtual void onMouse(makcm::usb::BootMouseReport report,
+                         uint8_t last_buttons);
+    virtual void onMouseButtons(makcm::usb::BootMouseReport report,
+                                uint8_t last_buttons);
+    virtual void onMouseMove(makcm::usb::BootMouseReport report);
     void receiveSerial0(void *command);
     void logRawBytes(const char *functionName, const uint8_t *data, uint16_t length);
     // Device/interface teardown must run in the same client task context as

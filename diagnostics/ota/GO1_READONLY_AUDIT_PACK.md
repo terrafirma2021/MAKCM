@@ -27,7 +27,7 @@
 | G-09 安全探针 | **PASS（源码意图）** | 危险早期 Flash 探针已删；coredump-to-UART/Flash 关闭；**实机确认仍要只读** |
 | 故障注入矩阵自动覆盖 | **PASS（模型最小集）** | `tests/test_go1_left_fault_injection.py` 8/8；真实断电/NVS 介质仍为 LIVE |
 | 实机只读 Status（CH343） | **PASS（V1） / PARTIAL（V2）** | Linux `/dev/ttyACM0`：Idle、`active_generation=5`、`target_generation=0`、非 maintenance_exclusive；V2 超时。见 `go1_live_readonly/left_status_20260805_230837.json` |
-| 签名包注入 Prepare 脚本 | **PASS（门禁打开）** | `go1_left_prepare.py` `PACKAGE_SHA` 已注入真实摘要；**仍不得无人值守 Activate** |
+| 签名包注入 Prepare 脚本 | **PASS（门禁打开）** | 当时脚本的 `PACKAGE_SHA` 已注入真实摘要；旧协议脚本现已移除，**仍不得按历史流程无人值守 Activate** |
 
 **结论**：三项只读门禁已齐。GO-1 **仍 STOP 于口头放行**：无人值守**不得** Prepare/Activate。未碰 COM3 / write_flash / NVS / otadata。
 
@@ -63,7 +63,7 @@
 - manifest：generation=15，role=left，project=`makcm_left_idf`，min_peer=5，max_peer=15
 - `signer_key_id` = `3dd2425f94e65ad13275fe6d1e2603bd`
 - `verify` → `signature_valid: true`
-- 旧包 `980687fb…`（min_peer=4）已作废；`go1_left_prepare.py` 继续拒绝该摘要
+- 旧包 `980687fb…`（min_peer=4）已作废；当时 Prepare 门禁拒绝该摘要
 
 核对事实：
 
@@ -118,7 +118,7 @@
 
 1. 只读基线：经 Linux USB2/CH343 读左 Status（已有 V1；可再试 V2）  
 2. Windows：对 USB1 做 descriptor snapshot（**当前缺口**）  
-3. **单次** left Prepare → Activate（`go1_left_prepare.py` 仅 Prepare；Activate 另脚本/手控）  
+3. **单次** left Prepare → Activate（当时仅 Prepare；Activate 另脚本/手控；旧协议脚本现已移除）
 4. 同 CH343 会话抓 mark pre/return/post；期望 `PENDING_VERIFY → VALID`  
 5. 失败则 STOP：先保存 status/otadata/RTC，禁止人工 BOOT/擦 NVS/擦 otadata
 

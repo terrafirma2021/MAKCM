@@ -1,620 +1,246 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 from pathlib import Path
 import re
+import struct
 import sys
 import tempfile
 import unittest
-import struct
 from unittest import mock
 
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import makcm_ota_tool as ota  # noqa: E402
+import update_proxy_pair as updater  # noqa: E402
 
 
-HEALTHY_OTA_FLAGS = (
-    ota.STATUS_PEER_COMPATIBLE
-    | ota.STATUS_HEALTH_PASSED
-    | ota.STATUS_LOCAL_BOOT_VALIDATED
-)
+HASH_A = bytes.fromhex("11" * 32)
+HASH_B = bytes.fromhex("22" * 32)
 
 
-def app_image(size: int = 8192) -> bytes:
-    image = bytearray((i * 31 + 7) & 0xFF for i in range(size))
-    image[0:4] = bytes((0xE9, 2, 2, 0x2F))
-    # Keep synthetic app data away from merged-image partition magic offsets.
-    if size > 0x8000:
-        image[0x8000:0x8002] = b"\x00\x00"
-    return bytes(image)
-
-
-def intrinsic_image(role: str, generation: int, *, marker_count: int = 1) -> bytes:
-    """Build the minimum structurally valid ESP/MAKCM identity fixture."""
-
-    image = bytearray(1024)
-    image[0:4] = bytes((0xE9, 2, 2, 0x2F))
-    descriptor_offset = 0x20
-    struct.pack_into("<I", image, descriptor_offset, ota.ESP_APP_DESC_MAGIC)
+def intrinsic_image(role: int, generation: int = 7) -> bytes:
+    project = (ota.LEFT_PROJECT_NAME if role == ota.TARGET_LEFT
+               else ota.RIGHT_PROJECT_NAME)
+    schema = (ota.LEFT_PARTITION_SCHEMA_V1 if role == ota.TARGET_LEFT
+              else ota.RIGHT_PARTITION_SCHEMA_V1)
+    image = bytearray(4096)
+    image[:4] = bytes((0xE9, 1, 0x02, 0))
+    descriptor = 0x20
+    struct.pack_into("<I", image, descriptor, ota.ESP_APP_DESC_MAGIC)
 
     def put_text(offset: int, capacity: int, value: str) -> None:
         encoded = value.encode("ascii")
         if len(encoded) >= capacity:
             raise AssertionError(value)
-        image[offset : offset + len(encoded)] = encoded
-        image[offset + len(encoded)] = 0
+        image[offset:offset + len(encoded)] = encoded
 
-    if role == "left":
-        descriptor_version = f"makcm-g{generation}"
-        descriptor_project = ota.LEFT_DESCRIPTOR_PROJECT
-        descriptor_idf = "v5.5.5"
-        marker_role = ota.TARGET_LEFT
-        schema = ota.LEFT_PARTITION_SCHEMA_V1
-        marker_project = ota.LEFT_PROJECT_NAME
-    else:
-        descriptor_version = "esp-idf: v4.4.7 38eeba213a"
-        descriptor_project = ota.RIGHT_DESCRIPTOR_PROJECT
-        descriptor_idf = "v4.4.7-dirty"
-        marker_role = ota.TARGET_RIGHT
-        schema = ota.RIGHT_PARTITION_SCHEMA_V1
-        marker_project = ota.RIGHT_MANIFEST_PROJECT_NAME
-    put_text(descriptor_offset + 16, 32, descriptor_version)
-    put_text(descriptor_offset + 48, 32, descriptor_project)
-    put_text(descriptor_offset + 112, 32, descriptor_idf)
-    image[descriptor_offset + 144 : descriptor_offset + 176] = bytes(range(1, 33))
+    version = ota.LEFT_DESCRIPTOR_VERSION.format(generation)
+    put_text(descriptor + 16, 32, version)
+    put_text(descriptor + 48, 32, project)
+    put_text(descriptor + 112, 32,
+             ota.RIGHT_DESCRIPTOR_IDF_VERSION if role == ota.TARGET_RIGHT
+             else "v5.5.4")
+    image[descriptor + 144:descriptor + 176] = bytes(range(1, 33))
 
-    for index in range(marker_count):
-        offset = 0x180 + index * ota.EMBEDDED_IDENTITY_SIZE
-        marker = bytearray(ota.EMBEDDED_IDENTITY_SIZE)
-        marker[:8] = ota.EMBEDDED_IDENTITY_MAGIC
-        struct.pack_into("<HH", marker, 8, ota.EMBEDDED_IDENTITY_VERSION,
-                         ota.EMBEDDED_IDENTITY_SIZE)
-        marker[12] = marker_role
-        struct.pack_into("<IIH", marker, 16, generation, schema,
-                         ota.DEFAULT_PROTOCOL_VERSION)
-        def marker_text(start: int, capacity: int, value: str) -> None:
-            encoded = value.encode("ascii")
-            if len(encoded) >= capacity:
-                raise AssertionError(value)
-            marker[start : start + len(encoded)] = encoded
-            marker[start + len(encoded)] = 0
-        marker_text(28, 16, ota.HARDWARE_REVISION_R1)
-        marker_text(44, 32, marker_project)
-        marker_text(76, 32, f"makcm-g{generation}")
-        marker[108:116] = ota.EMBEDDED_IDENTITY_TRAILER
-        image[offset : offset + len(marker)] = marker
+    marker_offset = 0x180
+    marker = bytearray(ota.EMBEDDED_IDENTITY_SIZE)
+    marker[:8] = ota.EMBEDDED_IDENTITY_MAGIC
+    struct.pack_into("<HH", marker, 8, ota.EMBEDDED_IDENTITY_VERSION,
+                     ota.EMBEDDED_IDENTITY_SIZE)
+    marker[12] = role
+    struct.pack_into("<IIH", marker, 16, generation, schema,
+                     ota.DEFAULT_PROTOCOL_VERSION)
+
+    def put_marker(offset: int, capacity: int, value: str) -> None:
+        encoded = value.encode("ascii")
+        if len(encoded) >= capacity:
+            raise AssertionError(value)
+        marker[offset:offset + len(encoded)] = encoded
+
+    put_marker(28, 16, ota.HARDWARE_REVISION_R1)
+    put_marker(44, 32, project)
+    put_marker(76, 32, version)
+    marker[108:116] = ota.EMBEDDED_IDENTITY_TRAILER
+    image[marker_offset:marker_offset + len(marker)] = marker
     return bytes(image)
 
 
-def status_payload(*, state: int = 2, last_command: int, reason: int = 0,
-                   next_offset: int = 0,
-                   target_generation: int = 0, active_generation: int = 0,
-                   flags: int = 0) -> bytes:
-    payload = bytearray(24)
-    payload[0:4] = bytes((ota.WIRE_VERSION, state, last_command, 0))
-    payload[4:6] = reason.to_bytes(2, "little")
-    payload[8:12] = next_offset.to_bytes(4, "little")
-    payload[12:16] = target_generation.to_bytes(4, "little")
-    payload[16:20] = active_generation.to_bytes(4, "little")
-    payload[20:24] = flags.to_bytes(4, "little")
-    return bytes(payload)
-
-
-STATUS_IMAGE_SHA = bytes.fromhex("11" * 32)
-STATUS_MANIFEST_SHA = bytes.fromhex("22" * 32)
-
-
-def status_v2_wire(*, role: int, state: int, last_command: int,
-                   transaction_id: int, target_generation: int,
-                   active_generation: int, flags: int = 0,
-                   next_offset: int = 0, completed: bool = False,
-                   image_sha: bytes = STATUS_IMAGE_SHA,
-                   manifest_sha: bytes = STATUS_MANIFEST_SHA) -> bytes:
-    evidence = ota.STATUS_V2_EVIDENCE_SNAPSHOT_VALID
-    active = bool(transaction_id and target_generation and not completed)
-    locally_validated = bool(flags & ota.STATUS_LOCAL_BOOT_VALIDATED)
-    if active:
-        evidence |= (
-            ota.STATUS_V2_EVIDENCE_ACTIVE
-            | ota.STATUS_V2_EVIDENCE_IDENTITY_VALID
-        )
-    if locally_validated:
-        evidence |= ota.STATUS_V2_EVIDENCE_LOCAL_VALIDATED
-    if completed:
-        evidence |= (
-            ota.STATUS_V2_EVIDENCE_COMPLETED
-            | ota.STATUS_V2_EVIDENCE_LOCAL_VALIDATED
-            | ota.STATUS_V2_EVIDENCE_PAIR_COMMITTED
-            | ota.STATUS_V2_EVIDENCE_IDENTITY_VALID
-        )
-    status = ota.StatusPayloadV2(
-        role=role,
-        local_phase=(6 if active and locally_validated else (2 if active else 0)),
-        state=state, last_command=last_command,
-        last_response_command=ota.CMD_STATUS_RESPONSE,
-        last_ota_operation=0, completed_outcome=1 if completed else 0,
-        reason=0, protocol_epoch=2, status_flags=flags,
-        next_offset=next_offset,
-        record_transaction_id=transaction_id if active else 0,
-        completed_transaction_id=transaction_id if completed else 0,
-        target_generation=target_generation if active else (target_generation if completed else 0),
-        active_generation=active_generation,
-        previous_generation=max(1, target_generation - 1),
-        partition_schema=1, image_size=8192, record_sequence=1,
-        last_request_sequence=1 if active else 0,
-        completed_terminal_sequence=9 if completed else 0,
-        reset_reason=1, last_ota_error=0, last_state_query_error=0,
-        boot_attempt=1, evidence_flags=evidence, running_slot=16,
-        boot_slot=17, target_slot=17 if active else 0xFF,
-        previous_slot=16, image_state=1,
-        completed_terminal_command=ota.CMD_CONFIRM if completed else ota.CMD_HELLO,
-        record_crc32=0x12345678, image_sha256=image_sha,
-        completed_image_sha256=image_sha if completed else bytes(32),
-        running_image_sha256=image_sha, manifest_sha256=manifest_sha,
-        identity_digest=bytes.fromhex("33" * 32),
-        previous_image_sha256=bytes.fromhex("44" * 32),
-        app_elf_sha256=bytes.fromhex("55" * 32),
-        hardware_revision="makcm-s3-r1", project_name="makcm-test",
-        app_version="makcm-g7",
+def package(role: int, generation: int = 7) -> bytes:
+    image = intrinsic_image(role, generation)
+    value = manifest(role)
+    value = ota.Manifest(
+        **{
+            **value.__dict__,
+            "generation": generation,
+            "image_size": len(image),
+            "image_sha256": hashlib.sha256(image).digest(),
+        }
     )
-    return ota.encode_status_v2(status)
+    return value.wire + image
 
 
-class MockTransport:
-    def __init__(self, *, fail_manifest: bool = False, wrong_offset_once: bool = False,
-                 mismatch_status: bool = False, status_generation: int = 0,
-                 active_generation: int = 0, status_state: int = 2,
-                 status_flags: int = 0, skip_data_offset_once: bool = False):
-        self.incoming = bytearray()
-        self.writes: list[ota.Frame] = []
+def status(*, role: int = ota.TARGET_RIGHT, state: int = ota.STATE_IDLE,
+           tx: int = 0, generation: int = 7, target_generation: int = 0,
+           running_hash: bytes = HASH_A, target_hash: bytes = bytes(32),
+           manifest_hash: bytes = bytes(32), image_size: int = 0,
+           next_offset: int = 0, flags: int | None = None,
+           project: str | None = None, schema: int | None = None
+           ) -> ota.StatusPayloadV2:
+    if flags is None:
+        flags = (ota.STATUS_PEER_COMPATIBLE | ota.STATUS_HEALTH_PASSED |
+                 ota.STATUS_LOCAL_BOOT_VALIDATED)
+    if project is None:
+        project = (ota.RIGHT_PROJECT_NAME
+                   if role == ota.TARGET_RIGHT else ota.LEFT_PROJECT_NAME)
+    if schema is None:
+        schema = (ota.RIGHT_PARTITION_SCHEMA_V1
+                  if role == ota.TARGET_RIGHT else ota.LEFT_PARTITION_SCHEMA_V1)
+    return ota.StatusPayloadV2(
+        role=role, state=state, last_command=ota.CMD_STATUS,
+        last_response_command=ota.CMD_STATUS_RESPONSE, reason=0,
+        status_flags=flags, next_offset=next_offset, transaction_id=tx,
+        target_generation=target_generation, running_generation=generation,
+        partition_schema=schema, image_size=image_size, reset_reason=1,
+        last_ota_error=0, last_state_query_error=0, running_slot=0,
+        boot_slot=0, target_slot=(1 if state in (
+            ota.STATE_RECEIVING, ota.STATE_PREPARED) else 0xFF), image_state=2,
+        target_image_sha256=target_hash,
+        running_image_sha256=running_hash,
+        manifest_sha256=manifest_hash, hardware_revision=ota.HARDWARE_REVISION_R1,
+        project_name=project, app_version="makcm-g7",
+    )
+
+
+def manifest(role: int = ota.TARGET_RIGHT) -> ota.Manifest:
+    return ota.Manifest(
+        version=1, role=role, image_kind=1, protocol_version=1, chip_id=9,
+        generation=7, min_peer_generation=1, max_peer_generation=9,
+        partition_schema=(ota.RIGHT_PARTITION_SCHEMA_V1
+                          if role == ota.TARGET_RIGHT
+                          else ota.LEFT_PARTITION_SCHEMA_V1),
+        image_size=4096, chunk_size=4096, signature_algorithm=1,
+        hardware_revision=ota.HARDWARE_REVISION_R1,
+        project_name=(ota.RIGHT_PROJECT_NAME
+                      if role == ota.TARGET_RIGHT else ota.LEFT_PROJECT_NAME),
+        image_sha256=HASH_A, signer_key_id=b"k" * 16,
+        signature=b"s" * 64,
+    )
+
+
+class ClosedTransport:
+    def __init__(self) -> None:
         self.closed = False
-        self.fail_manifest = fail_manifest
-        self.wrong_offset_once = wrong_offset_once
-        self.mismatch_status = mismatch_status
-        self.status_generation = status_generation
-        self.active_generation = active_generation
-        self.status_state = status_state
-        self.status_flags = status_flags
-        self.skip_data_offset_once = skip_data_offset_once
-        self.record_tx = 0
-        self.record_generation = status_generation
-        self.record_image_sha = STATUS_IMAGE_SHA
-        self.record_manifest_sha = STATUS_MANIFEST_SHA
-        self.last_accepted_offset = 0
-
-    def write(self, data: bytes) -> int:
-        frame = ota.decode_frame(data)
-        self.writes.append(frame)
-        if frame.command == ota.CMD_MANIFEST:
-            manifest = ota.decode_manifest(frame.payload)
-            self.record_tx = frame.transaction_id
-            self.record_generation = manifest.generation
-            self.record_image_sha = manifest.image_sha256
-            self.record_manifest_sha = hashlib.sha256(frame.payload).digest()
-        if self.fail_manifest and frame.command == ota.CMD_MANIFEST:
-            self.incoming += ota.encode_frame(
-                target=frame.target,
-                command=ota.CMD_NACK,
-                transaction_id=frame.transaction_id,
-                offset=0,
-                sequence=frame.sequence,
-                payload=status_payload(last_command=frame.command, reason=8),
-                flags=ota.FLAG_RESPONSE,
-            )
-            return len(data)
-        if self.wrong_offset_once and frame.command == ota.CMD_DATA:
-            self.wrong_offset_once = False
-            # Model an ACK-lost duplicate: the receiver already committed the
-            # chunk and its exact Status V2 therefore advances the offset.
-            self.last_accepted_offset = frame.offset + len(frame.payload)
-            self.incoming += ota.encode_frame(
-                target=frame.target,
-                command=ota.CMD_NACK,
-                transaction_id=frame.transaction_id,
-                offset=0,
-                sequence=frame.sequence,
-                payload=status_payload(last_command=frame.command, reason=9),
-                flags=ota.FLAG_RESPONSE,
-            )
-            return len(data)
-        if frame.command == ota.CMD_STATUS:
-            generation = self.status_generation or self.record_generation
-            # A board with no active transaction still runs some image, so its
-            # active generation is never zero even when target_generation is.
-            active = self.active_generation or generation or 1
-            active_tx = self.record_tx or frame.transaction_id if generation else 0
-            payload = status_v2_wire(
-                role=frame.target,
-                state=self.status_state,
-                last_command=frame.command,
-                transaction_id=active_tx,
-                target_generation=generation,
-                active_generation=active,
-                flags=self.status_flags,
-                next_offset=self.last_accepted_offset,
-                image_sha=self.record_image_sha,
-                manifest_sha=self.record_manifest_sha,
-            )
-            self.incoming += ota.encode_frame(
-                target=frame.target,
-                command=ota.CMD_STATUS_RESPONSE,
-                transaction_id=frame.transaction_id,
-                offset=self.last_accepted_offset,
-                sequence=frame.sequence,
-                payload=payload,
-                flags=ota.FLAG_RESPONSE | ota.FLAG_STATUS_V2,
-            )
-            return len(data)
-        accepted = frame.offset + len(frame.payload) if frame.command == ota.CMD_DATA else frame.offset
-        if frame.command == ota.CMD_DATA and self.skip_data_offset_once:
-            self.skip_data_offset_once = False
-            accepted += 1
-        if frame.command == ota.CMD_DATA:
-            self.last_accepted_offset = accepted
-        response_command = (
-            ota.CMD_STATUS_RESPONSE if frame.command == ota.CMD_STATUS else ota.CMD_ACK
-        )
-        response_payload = status_payload(
-            state=self.status_state,
-            last_command=frame.command,
-            next_offset=accepted,
-            target_generation=self.status_generation,
-            active_generation=self.active_generation,
-            flags=self.status_flags,
-        )
-        response_offset = frame.offset if self.mismatch_status else accepted
-        self.incoming += ota.encode_frame(
-            target=frame.target,
-            command=response_command,
-            transaction_id=frame.transaction_id,
-            offset=response_offset,
-            sequence=frame.sequence,
-            payload=response_payload,
-            flags=ota.FLAG_RESPONSE,
-        )
-        return len(data)
-
-    def read(self, size: int = 1) -> bytes:
-        if not self.incoming:
-            return b""
-        result = bytes(self.incoming[:size])
-        del self.incoming[:size]
-        return result
-
-    def close(self) -> None:
-        self.closed = True
-
-
-class DropResponseTransport(MockTransport):
-    """Drop the response to one state-changing command after recording it."""
-
-    def __init__(self, dropped_command: int):
-        super().__init__()
-        self.dropped_command = dropped_command
-
-    def write(self, data: bytes) -> int:
-        frame = ota.decode_frame(data)
-        if frame.command == self.dropped_command:
-            self.writes.append(frame)
-            return len(data)
-        return super().write(data)
-
-
-class PairConfirmTransport:
-    """Scripted exact-target status/confirm transport for the pair CLI."""
-
-    def __init__(self, *, right_statuses, left_statuses):
-        self.right_statuses = list(right_statuses)
-        self.left_statuses = list(left_statuses)
-        self.right_status_index = 0
-        self.left_status_index = 0
-        self.incoming = bytearray()
-        self.writes: list[ota.Frame] = []
-        self.closed = False
-
-    @staticmethod
-    def _wire_status(spec, command, transaction_id, target):
-        state, target_generation, active_generation, flags = spec
-        completed = state == ota.STATE_CONFIRMED
-        return status_v2_wire(
-            role=target,
-            state=state,
-            last_command=command,
-            transaction_id=transaction_id if target_generation else (transaction_id if completed else 0),
-            target_generation=target_generation,
-            active_generation=active_generation,
-            flags=flags,
-            completed=completed,
-        )
-
-    def _next_status(self, target):
-        if target == ota.TARGET_RIGHT:
-            values = self.right_statuses
-            index = self.right_status_index
-            self.right_status_index += 1
-        else:
-            values = self.left_statuses
-            index = self.left_status_index
-            self.left_status_index += 1
-        if not values:
-            raise AssertionError("missing scripted status")
-        return values[min(index, len(values) - 1)]
-
-    def write(self, data: bytes) -> int:
-        frame = ota.decode_frame(data)
-        self.writes.append(frame)
-        if frame.command == ota.CMD_STATUS:
-            spec = self._next_status(frame.target)
-            response_command = ota.CMD_STATUS_RESPONSE
-        elif frame.command == ota.CMD_CONFIRM:
-            if frame.target == ota.TARGET_RIGHT:
-                spec = (
-                    ota.STATE_CONFIRMED,
-                    5,
-                    5,
-                    HEALTHY_OTA_FLAGS,
-                )
-            else:
-                spec = (ota.STATE_CONFIRMED, 0, 5, 0)
-            response_command = ota.CMD_ACK
-        else:
-            spec = (ota.STATE_PENDING_CONFIRM, 5, 5, 0)
-            response_command = ota.CMD_ACK
-        if frame.command == ota.CMD_STATUS:
-            payload = self._wire_status(
-                spec, frame.command, frame.transaction_id, frame.target
-            )
-            response_flags = ota.FLAG_RESPONSE | ota.FLAG_STATUS_V2
-        else:
-            state, target_generation, active_generation, flags = spec
-            payload = status_payload(
-                state=state, last_command=frame.command,
-                target_generation=target_generation,
-                active_generation=active_generation, flags=flags,
-            )
-            response_flags = ota.FLAG_RESPONSE
-        self.incoming += ota.encode_frame(
-            target=frame.target,
-            command=response_command,
-            transaction_id=frame.transaction_id,
-            offset=0,
-            sequence=frame.sequence,
-            payload=payload,
-            flags=response_flags,
-        )
-        return len(data)
-
-    def read(self, size: int = 1) -> bytes:
-        if not self.incoming:
-            return b""
-        result = bytes(self.incoming[:size])
-        del self.incoming[:size]
-        return result
 
     def close(self) -> None:
         self.closed = True
 
 
 class SerialDouble:
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: object) -> None:
         self.kwargs = kwargs
         self.port = kwargs.get("port")
-        self.dtr = None
-        self.rts = None
+        self.dtr = self.rts = None
         self.writes: list[bytes] = []
-        self.opened = False
-        self.closed = False
-        self.flushed = False
-        self.input_reset = False
-        self.output_reset = False
+        self.flushed = self.input_reset = self.output_reset = False
 
-    def open(self):
-        self.opened = True
+    def open(self) -> None: pass
+    def close(self) -> None: pass
+    def read(self, size: int = 1) -> bytes: return b""
 
-    def write(self, data):
+    def write(self, data: bytes) -> int:
         self.writes.append(bytes(data))
         return len(data)
 
-    def flush(self):
-        self.flushed = True
-
-    def reset_input_buffer(self):
-        self.input_reset = True
-
-    def reset_output_buffer(self):
-        self.output_reset = True
-
-    def read(self, size=1):
-        return b""
-
-    def close(self):
-        self.closed = True
+    def flush(self) -> None: self.flushed = True
+    def reset_input_buffer(self) -> None: self.input_reset = True
+    def reset_output_buffer(self) -> None: self.output_reset = True
 
 
-class OtaToolTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-        self.image = app_image()
-        self.key = ec.generate_private_key(ec.SECP256R1())
-        self.private_path = self.root / "signer.pem"
-        self.public_path = self.root / "signer.pub.pem"
-        self.private_path.write_bytes(
-            self.key.private_bytes(
-                serialization.Encoding.PEM,
-                serialization.PrivateFormat.PKCS8,
-                serialization.NoEncryption(),
-            )
-        )
-        self.public_path.write_bytes(
-            self.key.public_key().public_bytes(
-                serialization.Encoding.PEM,
-                serialization.PublicFormat.SubjectPublicKeyInfo,
-            )
-        )
-
-    def tearDown(self) -> None:
-        self.tmp.cleanup()
-
-    def manifest(self, image: bytes | None = None) -> ota.Manifest:
-        return ota.make_manifest(
-            image or self.image,
-            role="left",
-            generation=7,
-            min_peer_generation=6,
-            max_peer_generation=8,
-            partition_schema=0xAABBCCDD,
-            hardware_revision="s3-r1",
-            project_name="makcm-left",
-            signer_key_id="00112233445566778899aabbccddeeff",
-        )
-
-    def test_frame_matches_cpp_layout_and_crc(self) -> None:
-        payload = bytes(range(64))
+class MakcmOtaToolTest(unittest.TestCase):
+    def test_frame_matches_cpp_golden_layout_and_crc(self) -> None:
         wire = ota.encode_frame(
-            target=ota.TARGET_RIGHT,
-            command=ota.CMD_DATA,
-            transaction_id=0x12345678,
-            offset=4096,
-            sequence=7,
-            payload=payload,
-            flags=ota.FLAG_RETRANSMIT,
+            target=ota.TARGET_RIGHT, command=ota.CMD_DATA,
+            transaction_id=0x12345678, offset=0x20, sequence=9,
+            payload=b"abc", flags=ota.FLAG_FINAL,
         )
-        frame = ota.decode_frame(wire)
-        self.assertEqual(frame.target, ota.TARGET_RIGHT)
-        self.assertEqual(frame.offset, 4096)
-        self.assertEqual(frame.payload, payload)
-        self.assertEqual(len(wire), ota.HEADER_SIZE + len(payload) + ota.CRC_SIZE)
-        with self.assertRaises(ota.OtaToolError):
-            ota.encode_frame(
-                target=ota.TARGET_RIGHT,
-                command=0x7F,
-                transaction_id=1,
-            )
+        self.assertEqual(wire[:4], b"MKOT")
+        self.assertEqual(
+            struct.unpack_from("<BBBBIIHHI", wire, 4),
+            (1, ota.TARGET_RIGHT, ota.CMD_DATA, ota.FLAG_FINAL,
+             0x12345678, 0x20, 3, 0, 9),
+        )
+        self.assertEqual(struct.unpack_from("<I", wire, 27)[0],
+                         ota.crc32(wire[4:27]))
+        self.assertEqual(ota.decode_frame(wire).payload, b"abc")
 
     def test_shared_cpp_python_golden_frame(self) -> None:
         contract = (ROOT / "tests" / "ota_protocol_golden.inc").read_text(
             encoding="ascii"
         )
         match = re.search(
-            r'MAKCM_OTA_GOLDEN_FRAME_HEX\s*\\\s*"([0-9a-f]+)"',
-            contract,
+            r'MAKCM_OTA_GOLDEN_FRAME_HEX\s*\\\s*"([0-9a-f]+)"', contract
         )
         self.assertIsNotNone(match)
         expected = bytes.fromhex(match.group(1))
         actual = ota.encode_frame(
-            target=ota.TARGET_RIGHT,
-            command=ota.CMD_DATA,
-            flags=ota.FLAG_RETRANSMIT,
-            transaction_id=0x12345678,
-            offset=0x10203040,
-            sequence=0x01020304,
+            target=ota.TARGET_RIGHT, command=ota.CMD_DATA,
+            flags=ota.FLAG_RETRANSMIT, transaction_id=0x12345678,
+            offset=0x10203040, sequence=0x01020304,
             payload=bytes((0x00, 0x01, 0x7F, 0x80, 0xFF)),
         )
         self.assertEqual(actual, expected)
-        decoded = ota.decode_frame(expected)
-        self.assertEqual(decoded.sequence, 0x01020304)
-        self.assertEqual(decoded.payload, bytes((0x00, 0x01, 0x7F, 0x80, 0xFF)))
 
-    def test_frame_rejects_reserved_sequence_zero_and_max(self) -> None:
-        for sequence in (0, 0xFFFFFFFF):
-            with self.subTest(sequence=sequence), self.assertRaisesRegex(
-                ota.OtaToolError, "sequence"
-            ):
+    def test_frame_flags_reject_invalid_command_combinations(self) -> None:
+        invalid = (
+            (ota.CMD_HELLO, ota.FLAG_FINAL),
+            (ota.CMD_HELLO, ota.FLAG_RESPONSE),
+            (ota.CMD_DATA, ota.FLAG_STATUS_V2),
+            (ota.CMD_STATUS, 0),
+            (ota.CMD_STATUS, ota.FLAG_STATUS_V2 | ota.FLAG_FINAL),
+            (ota.CMD_ACK, 0),
+            (ota.CMD_ACK, ota.FLAG_RESPONSE | ota.FLAG_RETRANSMIT),
+            (ota.CMD_NACK, ota.FLAG_RESPONSE | ota.FLAG_STATUS_V2),
+            (ota.CMD_STATUS_RESPONSE, ota.FLAG_RESPONSE),
+            (ota.CMD_STATUS_RESPONSE,
+             ota.FLAG_RESPONSE | ota.FLAG_STATUS_V2 | ota.FLAG_RETRANSMIT),
+        )
+        for command, flags in invalid:
+            with self.subTest(command=command, flags=flags), \
+                    self.assertRaises(ota.OtaToolError):
                 ota.encode_frame(
-                    target=ota.TARGET_LEFT,
-                    command=ota.CMD_HELLO,
-                    transaction_id=1,
-                    sequence=sequence,
+                    target=ota.TARGET_RIGHT, command=command,
+                    transaction_id=1, sequence=1, flags=flags,
                 )
 
-    def test_client_stops_before_sequence_wrap(self) -> None:
-        transport = MockTransport()
-        client = ota.OtaClient(
-            transport, target=ota.TARGET_LEFT, transaction_id=91, timeout=0.01,
+    def test_decode_rejects_crc_valid_invalid_flag_combinations(self) -> None:
+        valid = ota.encode_frame(
+            target=ota.TARGET_RIGHT, command=ota.CMD_DATA,
+            transaction_id=1, sequence=1,
         )
-        client._sequence = 0xFFFFFFFD
-        client.request(ota.CMD_HELLO)
-        self.assertEqual(client._sequence, 0xFFFFFFFE)
-        with self.assertRaisesRegex(ota.OtaToolError, "sequence exhausted"):
-            client.request(ota.CMD_HELLO)
-
-    def test_status_v2_rejects_reserved_and_unknown_fields(self) -> None:
-        wire = bytearray(status_v2_wire(
-            role=ota.TARGET_LEFT, state=ota.STATE_PREPARED,
-            last_command=ota.CMD_STATUS, transaction_id=91,
-            target_generation=7, active_generation=6,
-        ))
-        for description, mutate in (
-            ("record sequence", lambda value: value.__setitem__(48, 0)),
-            ("protocol epoch", lambda value: value.__setitem__(10, 3)),
-            ("unknown evidence", lambda value: value.__setitem__(74, 0x80)),
-        ):
-            with self.subTest(description=description):
-                bad = bytearray(wire)
-                mutate(bad)
+        invalid = (
+            (ota.CMD_HELLO, ota.FLAG_FINAL),
+            (ota.CMD_STATUS, 0),
+            (ota.CMD_ACK, ota.FLAG_RESPONSE | ota.FLAG_RETRANSMIT),
+            (ota.CMD_STATUS_RESPONSE, ota.FLAG_RESPONSE),
+        )
+        for command, flags in invalid:
+            with self.subTest(command=command, flags=flags):
+                wire = bytearray(valid)
+                wire[6] = command
+                wire[7] = flags
+                struct.pack_into("<I", wire, len(wire) - ota.CRC_SIZE,
+                                 ota.crc32(wire[4:-ota.CRC_SIZE]))
                 with self.assertRaises(ota.OtaToolError):
-                    ota.decode_status_v2(bytes(bad))
+                    ota.decode_frame(bytes(wire))
 
-    def test_activation_disposition_does_not_treat_prepared_as_activated(self) -> None:
-        prepared = ota.decode_status_v2(status_v2_wire(
-            role=ota.TARGET_RIGHT,
-            state=ota.STATE_PREPARED,
-            last_command=ota.CMD_STATUS,
-            transaction_id=91,
-            target_generation=7,
-            active_generation=6,
-        ))
-        self.assertEqual(
-            ota.activation_disposition(
-                prepared,
-                role=ota.TARGET_RIGHT,
-                transaction_id=91,
-                generation=7,
-                image_sha256=STATUS_IMAGE_SHA,
-                manifest_sha256=STATUS_MANIFEST_SHA,
-            ),
-            "activate",
-        )
-
-        pending = ota.decode_status_v2(status_v2_wire(
-            role=ota.TARGET_RIGHT,
-            state=ota.STATE_PENDING_CONFIRM,
-            last_command=ota.CMD_STATUS,
-            transaction_id=91,
-            target_generation=7,
-            active_generation=7,
-        ))
-        self.assertEqual(
-            ota.activation_disposition(
-                pending,
-                role=ota.TARGET_RIGHT,
-                transaction_id=91,
-                generation=7,
-                image_sha256=STATUS_IMAGE_SHA,
-                manifest_sha256=STATUS_MANIFEST_SHA,
-            ),
-            "already_activated",
-        )
-
-    def test_data_ack_that_skips_offset_is_rejected(self) -> None:
-        transport = MockTransport(skip_data_offset_once=True)
-        client = ota.OtaClient(
-            transport, target=ota.TARGET_LEFT, transaction_id=92, timeout=0.01,
-        )
-        manifest = ota.sign_manifest(self.manifest(), self.private_path)
-        with self.assertRaisesRegex(ota.OtaToolError, "expected"):
-            client.send_data(self.image, manifest=manifest)
-
-    def test_explicit_transport_performs_boot_to_4m_switch(self) -> None:
+    def test_explicit_serial_switches_115200_to_4m_without_control_lines(self) -> None:
         instances: list[SerialDouble] = []
         serial_module = mock.Mock()
 
-        def factory(**kwargs):
+        def factory(**kwargs: object) -> SerialDouble:
             instance = SerialDouble(**kwargs)
             instances.append(instance)
             return instance
@@ -628,496 +254,497 @@ class OtaToolTests(unittest.TestCase):
         self.assertEqual([item.kwargs["baudrate"] for item in instances],
                          [ota.BOOT_BAUD, ota.FAST_BAUD])
         self.assertEqual(instances[0].writes, [ota.SPEED_SWITCH])
-        self.assertTrue(instances[0].flushed)
         self.assertEqual(instances[1].writes, [ota.SERIAL_FRAME_BOUNDARY])
-        self.assertTrue(instances[1].flushed)
-        self.assertTrue(instances[1].input_reset)
-        self.assertTrue(instances[1].output_reset)
-        self.assertFalse(instances[0].dtr)
-        self.assertFalse(instances[0].rts)
+        self.assertIs(instances[0].dtr, False)
+        self.assertIs(instances[0].rts, False)
 
-    def test_115200_transport_also_restores_frame_boundary(self) -> None:
-        serial_module = mock.Mock()
-        serial_module.Serial.side_effect = lambda **kwargs: SerialDouble(**kwargs)
-        with mock.patch.dict(sys.modules, {"serial": serial_module}), \
-                mock.patch.object(sys, "platform", "win32"), \
-                mock.patch.object(ota.time, "sleep"):
-            transport = ota.SerialTransport("COM3", baudrate=ota.BOOT_BAUD)
-            instance = transport._serial
-            transport.close()
-        self.assertEqual(instance.writes, [ota.SERIAL_FRAME_BOUNDARY])
-        self.assertTrue(instance.flushed)
+    def test_status_v2_is_strict_fixed_232_byte_wire(self) -> None:
+        value = status()
+        wire = ota.encode_status_v2(value)
+        self.assertEqual(len(wire), 232)
+        self.assertEqual(ota.decode_status_v2(wire), value)
+        for malformed in (wire[:-1], wire + b"\0"):
+            with self.assertRaisesRegex(ota.OtaToolError, "exactly 232"):
+                ota.decode_status_v2(malformed)
+        reserved = bytearray(wire)
+        reserved[10] = 1
+        with self.assertRaisesRegex(ota.OtaToolError, "reserved"):
+                ota.decode_status_v2(bytes(reserved))
 
-    def test_uart_commands_default_above_right_cleanup_budget(self) -> None:
-        parser = ota._parser()
-        status = parser.parse_args([
-            "status", "--port", "COM3", "--target", "left",
-        ])
-        pair = parser.parse_args([
-            "pair-prepare", "--port", "COM3",
-            "--right-package", "right.mkota",
-            "--left-package", "left.mkota",
-            "--right-package-sha256", "0" * 64,
-            "--left-package-sha256", "1" * 64,
-        ])
-        self.assertGreater(status.timeout, 4.0)
-        self.assertEqual(status.timeout, ota.DEFAULT_UART_REQUEST_TIMEOUT)
-        self.assertEqual(pair.timeout, ota.DEFAULT_UART_REQUEST_TIMEOUT)
-
-    def test_status_payload_matches_cpp_wire(self) -> None:
-        payload = bytearray(24)
-        payload[0:4] = bytes((ota.WIRE_VERSION, 2, ota.CMD_DATA, 0))
-        payload[4:6] = (0).to_bytes(2, "little")
-        payload[8:12] = (4096).to_bytes(4, "little")
-        payload[12:16] = (7).to_bytes(4, "little")
-        status = ota.decode_status_payload(bytes(payload))
-        self.assertEqual(status.next_offset, 4096)
-        self.assertEqual(status.target_generation, 7)
-
-    def test_manifest_sign_verify_and_raw_signature(self) -> None:
-        signed = ota.sign_manifest(self.manifest(), self.private_path)
-        self.assertEqual(len(signed.wire), ota.MANIFEST_SIZE)
-        self.assertEqual(len(signed.signature), 64)
-        self.assertTrue(ota.verify_manifest_signature(signed, self.public_path))
-        tampered = ota.Manifest(**{**signed.__dict__, "project_name": "tampered"})
-        self.assertFalse(ota.verify_manifest_signature(tampered, self.public_path))
-
-    def test_public_trust_anchor_generation_is_explicit_and_public_only(self) -> None:
-        output = self.root / "ota_trust_anchor.local.inc"
-        result = ota.write_trust_anchor(
-            self.public_path,
-            output,
-            signer_key_id="00112233445566778899aabbccddeeff",
+    def test_command_response_ack_and_nack_goldens_are_not_status_v2(self) -> None:
+        ack = bytes.fromhex(
+            "0102050000000000403020100e0000000d00000002000000"
         )
-        text = output.read_text(encoding="ascii")
-        self.assertIn("constexpr uint8_t kSignerKeyId[16]", text)
-        self.assertIn("constexpr uint8_t kPublicX[32]", text)
-        self.assertIn("constexpr uint8_t kPublicY[32]", text)
-        self.assertNotIn("PRIVATE KEY", text)
-        self.assertEqual(result["signer_key_id"],
-                         "00112233445566778899aabbccddeeff")
-        with self.assertRaises(ota.OtaToolError):
-            ota.write_trust_anchor(
-                self.public_path,
-                output,
-                signer_key_id="00112233445566778899aabbccddeeff",
+        nack = bytes.fromhex(
+            "01010a000e00000044332211090000000800000008000000"
+        )
+        self.assertEqual(len(ack), ota.COMMAND_RESPONSE_SIZE)
+        self.assertEqual(
+            ota.decode_command_response_payload(ack).last_command,
+            ota.CMD_PREPARE,
+        )
+        decoded_nack = ota.decode_command_response_payload(nack)
+        self.assertEqual(decoded_nack.last_command, ota.CMD_EXIT_MAINTENANCE)
+        self.assertEqual(decoded_nack.reason, 14)
+        with self.assertRaisesRegex(ota.OtaToolError, "exactly 232"):
+            ota.decode_status_v2(ack)
+
+        with self.assertRaisesRegex(ota.OtaToolError, "reason disagree"):
+            ota._command_response_semantics(
+                ota.CMD_NACK, ota.decode_command_response_payload(ack)
+            )
+        with self.assertRaisesRegex(ota.OtaToolError, "reason disagree"):
+            ota._command_response_semantics(
+                ota.CMD_ACK, ota.decode_command_response_payload(nack)
             )
 
-    def test_package_is_manifest_plus_app_and_rejects_merged(self) -> None:
-        package, manifest = ota.build_package(
-            self.image,
-            private_key_path=self.private_path,
-            signer_key_id="00112233445566778899aabbccddeeff",
-            role="left",
-            generation=7,
-            min_peer_generation=6,
-            max_peer_generation=8,
-            partition_schema=1,
-            hardware_revision="s3-r1",
-            project_name="makcm-left",
-        )
-        self.assertEqual(package[: ota.MANIFEST_SIZE], manifest.wire)
-        info = ota.package_info(package)
-        self.assertEqual(info["package_size"], len(package))
-        self.assertEqual(info["image_sha256"], hashlib.sha256(self.image).hexdigest())
-        merged = bytearray(self.image + b"\0" * (0x8000 - len(self.image)))
-        merged[0x8000:0x8002] = b"\xAA\x50"
-        with self.assertRaises(ota.OtaToolError):
-            ota.validate_application_image(bytes(merged))
+    def test_manifest_ecdsa_signature_round_trip(self) -> None:
+        if ota.ec is None:
+            self.skipTest("cryptography is unavailable")
+        from cryptography.hazmat.primitives import serialization
 
-    def test_intrinsic_identity_proves_generation_without_manifest_guessing(self) -> None:
-        left = intrinsic_image("left", 15)
-        descriptor = ota.validate_intrinsic_identity(left, role="left", generation=15)
-        self.assertEqual(descriptor.version, "makcm-g15")
-        with self.assertRaisesRegex(ota.OtaToolError, "generation"):
-            ota.validate_intrinsic_identity(left, role="left", generation=14)
+        key = ota.ec.generate_private_key(ota.ec.SECP256R1())
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            private_path = root / "private.pem"
+            public_path = root / "public.pem"
+            private_path.write_bytes(key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            ))
+            public_path.write_bytes(key.public_key().public_bytes(
+                serialization.Encoding.PEM,
+                serialization.PublicFormat.SubjectPublicKeyInfo,
+            ))
+            signed = ota.sign_manifest(manifest(), private_path)
+            self.assertTrue(ota.verify_manifest_signature(
+                signed, public_path,
+                expected_signer_key_id=signed.signer_key_id,
+            ))
+            self.assertEqual(len(signed.signature), 64)
 
-        right = intrinsic_image("right", 15)
-        descriptor = ota.validate_intrinsic_identity(right, role="right", generation=15)
-        self.assertEqual(descriptor.project_name, ota.RIGHT_DESCRIPTOR_PROJECT)
+    def test_status_v2_rejects_old_snapshot_fields(self) -> None:
+        names = {field.name for field in ota.dataclass_fields(ota.StatusPayloadV2)}
+        self.assertNotIn("record_transaction_id", names)
+        self.assertNotIn("completed_transaction_id", names)
+        self.assertNotIn("evidence_flags", names)
+        self.assertEqual(ota.STATUS_V2_SIZE, 232)
 
-        with self.assertRaisesRegex(ota.OtaToolError, "exactly one"):
-            ota.validate_intrinsic_identity(
-                intrinsic_image("right", 15, marker_count=2),
-                role="right", generation=15,
-            )
+    def test_library_has_no_authorization_or_resume_api(self) -> None:
+        for method in (ota.OtaClient.prepare, ota.OtaClient.activate,
+                       ota.OtaClient.confirm, ota.OtaClient.abort):
+            self.assertFalse(any(
+                name.startswith("allow")
+                for name in inspect.signature(method).parameters
+            ))
+        self.assertFalse(hasattr(ota, "status_v2_matches_active"))
+        self.assertFalse(hasattr(ota, "status_v2_matches_completed"))
+        commands = ota._parser()._subparsers._group_actions[0].choices
+        self.assertEqual(set(commands), {"package", "inspect", "verify",
+                                         "anchor", "status"})
 
-    def test_actual_right_candidate_identity_is_read_from_marker(self) -> None:
-        path = ROOT / "MAKCM_ESP32s3_HID_Mouse_Right" / ".pio" / "build" / "RIGHT" / "firmware.bin"
-        if not path.exists():
-            self.skipTest("right candidate firmware.bin is not present")
-        image = path.read_bytes()
-        identities = ota.parse_embedded_identities(image, label=str(path))
-        self.assertEqual(len(identities), 1)
-        generation = identities[0].generation
-        descriptor = ota.validate_intrinsic_identity(
-            image, role="right", generation=generation, label=str(path)
-        )
-        self.assertTrue(descriptor.idf_version.startswith("v4.4.7"))
-
-    def test_prepare_retries_resume_and_never_activates(self) -> None:
-        transport = MockTransport(wrong_offset_once=True)
-        client = ota.OtaClient(transport, target=ota.TARGET_LEFT, transaction_id=9, timeout=0.01)
-        manifest = ota.sign_manifest(self.manifest(), self.private_path)
-        package = manifest.wire + self.image
-        result = client.prepare(package, allow_ota=True)
-        self.assertEqual(result["image_size"], len(self.image))
-        commands = [frame.command for frame in transport.writes]
-        self.assertIn(ota.CMD_PREPARE, commands)
-        self.assertNotIn(ota.CMD_ACTIVATE, commands)
-        self.assertEqual(transport.writes[-1].command, ota.CMD_PREPARE)
-
-    def test_right_prepare_enters_maintenance_without_discovery_hello(self) -> None:
-        transport = MockTransport()
-        client = ota.OtaClient(
-            transport, target=ota.TARGET_RIGHT, transaction_id=10, timeout=0.01
-        )
-        manifest = ota.sign_manifest(
-            ota.make_manifest(
-                self.image,
-                role="right",
-                generation=7,
-                min_peer_generation=6,
-                max_peer_generation=8,
-                partition_schema=0xAABBCCDD,
-                hardware_revision="s3-r1",
-                project_name="makcm-right",
-                signer_key_id="00112233445566778899aabbccddeeff",
+    def test_right_gate_completes_before_left_and_progress_is_fixed(self) -> None:
+        right_package = package(ota.TARGET_RIGHT)
+        left_package = package(ota.TARGET_LEFT)
+        events: list[str] = []
+        transport = ClosedTransport()
+        with mock.patch.object(
+            ota, "_update_right",
+            side_effect=lambda *args, **kwargs: (
+                events.append("right-done") or ("updated", status())
             ),
-            self.private_path,
-        )
-        client.prepare(manifest.wire + self.image, allow_ota=True)
-        commands = [frame.command for frame in transport.writes]
-        self.assertEqual(commands[0], ota.CMD_ENTER_MAINTENANCE)
-        self.assertNotIn(ota.CMD_HELLO, commands)
-
-    def test_left_prepare_keeps_local_preflight_hello(self) -> None:
-        transport = MockTransport()
-        client = ota.OtaClient(
-            transport, target=ota.TARGET_LEFT, transaction_id=10, timeout=0.01
-        )
-        manifest = ota.sign_manifest(self.manifest(), self.private_path)
-        client.prepare(manifest.wire + self.image, allow_ota=True)
-        commands = [frame.command for frame in transport.writes]
-        self.assertEqual(commands[:2], [ota.CMD_HELLO, ota.CMD_ENTER_MAINTENANCE])
-
-    def test_status_offset_mismatch_fails_closed(self) -> None:
-        transport = MockTransport(mismatch_status=True)
-        client = ota.OtaClient(transport, target=ota.TARGET_LEFT, transaction_id=11,
-                               timeout=0.01)
-        with self.assertRaises(ota.OtaToolError):
-            client.request(ota.CMD_DATA, payload=b"x" * ota.MIN_CHUNK_SIZE)
-
-    def test_confirm_timeout_never_aborts_ambiguous_write(self) -> None:
-        transport = DropResponseTransport(ota.CMD_CONFIRM)
-        client = ota.OtaClient(
-            transport, target=ota.TARGET_LEFT, transaction_id=21,
-            timeout=0.001, retries=0,
-        )
-        with self.assertRaises(ota.OtaToolError):
-            client.confirm(allow_confirm=True)
-        commands = [frame.command for frame in transport.writes]
-        self.assertEqual(commands, [ota.CMD_STATUS, ota.CMD_CONFIRM, ota.CMD_STATUS])
-        self.assertNotIn(ota.CMD_ABORT, commands)
-
-    def test_activate_timeout_never_aborts_ambiguous_write(self) -> None:
-        transport = DropResponseTransport(ota.CMD_ACTIVATE)
-        client = ota.OtaClient(
-            transport, target=ota.TARGET_RIGHT, transaction_id=22,
-            timeout=0.001, retries=0,
-        )
-        with self.assertRaises(ota.OtaToolError):
-            client.activate(allow_activate=True)
-        commands = [frame.command for frame in transport.writes]
-        self.assertEqual(commands, [ota.CMD_STATUS, ota.CMD_ACTIVATE, ota.CMD_STATUS])
-        self.assertNotIn(ota.CMD_ABORT, commands)
-
-    def test_peer_confirmation_requires_explicit_flag(self) -> None:
-        transport = MockTransport(status_generation=3, status_flags=0)
-        client = ota.OtaClient(transport, target=ota.TARGET_RIGHT, transaction_id=12,
-                               timeout=0.01)
-        with self.assertRaisesRegex(ota.OtaToolError, "peer confirmation"):
-            client.wait_peer_confirmation(expected_generation=3, timeout=0.02,
-                                          poll_interval=0.001)
-        good = MockTransport(
-            status_generation=3,
-            active_generation=3,
-            status_state=ota.STATE_PENDING_CONFIRM,
-            status_flags=HEALTHY_OTA_FLAGS,
-        )
-        good_client = ota.OtaClient(good, target=ota.TARGET_RIGHT, transaction_id=12,
-                                    timeout=0.01)
-        status = good_client.wait_peer_confirmation(expected_generation=3,
-                                                    timeout=0.02, poll_interval=0.001)
-        self.assertEqual(status.target_generation, 3)
-
-        # A logically idle/healthy response without a completed tombstone is
-        # deliberately insufficient for automatic pair confirmation.
-        confirmed = MockTransport(
-            active_generation=3,
-            status_state=0,
-            status_flags=HEALTHY_OTA_FLAGS,
-        )
-        confirmed_client = ota.OtaClient(
-            confirmed, target=ota.TARGET_RIGHT, transaction_id=12, timeout=0.01
-        )
-        with self.assertRaisesRegex(ota.OtaToolError, "identity/tombstone"):
-            confirmed_client.wait_confirmed_peer(
-                expected_generation=3, timeout=0.02, poll_interval=0.001
+        ), mock.patch.object(
+            ota, "_update_left",
+            side_effect=lambda *args, **kwargs: (
+                events.append("left-start") or
+                (transport, "updated", status(role=ota.TARGET_LEFT))
+            ),
+        ):
+            result = ota.update_pair(
+                transport_factory=lambda: transport, right_package=right_package,
+                left_package=left_package, request_timeout=1, retries=1,
+                boot_timeout=1, progress=events.append,
             )
+        self.assertLess(events.index("right-done"), events.index("left-start"))
+        self.assertEqual([item for item in events if item in (
+            "preflight", "right", "left", "complete")],
+            ["preflight", "right", "left", "complete"])
+        self.assertEqual(result["generation"], 7)
 
-    def test_activation_recovery_requires_active_generation(self) -> None:
-        flags = HEALTHY_OTA_FLAGS
-        stale = MockTransport(
-            status_generation=3,
-            active_generation=2,
-            status_state=ota.STATE_PENDING_CONFIRM,
-            status_flags=flags,
-        )
-        client = ota.OtaClient(
-            stale, target=ota.TARGET_RIGHT, transaction_id=12, timeout=0.01
-        )
-        with self.assertRaisesRegex(ota.OtaToolError, "active generation"):
-            client.wait_peer_confirmation(
-                expected_generation=3, timeout=0.02, poll_interval=0.001
+    def test_package_bytes_accepts_real_intrinsic_identity_for_numeric_roles(self) -> None:
+        for role in (ota.TARGET_LEFT, ota.TARGET_RIGHT):
+            with self.subTest(role=role):
+                decoded, image_hash, _ = ota._package_bytes(package(role), role)
+                self.assertEqual(decoded.role, role)
+                self.assertEqual(image_hash, hashlib.sha256(
+                    intrinsic_image(role)
+                ).digest())
+
+    def test_intrinsic_identity_accepts_role_names_and_rejects_invalid_roles(self) -> None:
+        for name, role in (("left", ota.TARGET_LEFT),
+                           ("right", ota.TARGET_RIGHT)):
+            with self.subTest(role=name):
+                ota.validate_intrinsic_identity(
+                    intrinsic_image(role), role=name, generation=7,
+                )
+        for invalid in (0, 3, True, "host"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                ota.OtaToolError, r"role must be (?:exactly )?left or right"
+            ):
+                ota.validate_intrinsic_identity(
+                    b"not an image", role=invalid, generation=7,
+                )
+
+    def test_proxy_preflight_accepts_real_intrinsic_identities(self) -> None:
+        if ota.ec is None:
+            self.skipTest("cryptography is unavailable")
+        from cryptography.hazmat.primitives import serialization
+
+        key = ota.ec.generate_private_key(ota.ec.SECP256R1())
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            private_path = root / "private.pem"
+            public_path = root / "public.pem"
+            private_path.write_bytes(key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            ))
+            public_bytes = key.public_key().public_bytes(
+                serialization.Encoding.PEM,
+                serialization.PublicFormat.SubjectPublicKeyInfo,
             )
+            public_path.write_bytes(public_bytes)
+            package_paths: dict[int, Path] = {}
+            signer_id: str | None = None
+            for role, name in ((ota.TARGET_LEFT, "left.mkota"),
+                               (ota.TARGET_RIGHT, "right.mkota")):
+                unsigned_package = package(role)
+                signed = ota.sign_manifest(
+                    ota.decode_manifest(unsigned_package[:ota.MANIFEST_SIZE]),
+                    private_path,
+                )
+                signer_id = signed.signer_key_id.hex()
+                package_paths[role] = root / name
+                package_paths[role].write_bytes(
+                    signed.wire + unsigned_package[ota.MANIFEST_SIZE:]
+                )
 
-    def test_confirm_recovery_rejects_logical_idle_maintenance_without_tombstone(self) -> None:
-        confirmed = MockTransport(
-            active_generation=3,
-            status_state=ota.STATE_MAINTENANCE,
-            status_flags=HEALTHY_OTA_FLAGS,
-        )
-        client = ota.OtaClient(
-            confirmed, target=ota.TARGET_RIGHT, transaction_id=12, timeout=0.01
-        )
-        with self.assertRaisesRegex(ota.OtaToolError, "identity/tombstone"):
-            client.wait_confirmed_peer(
-                expected_generation=3, timeout=0.02, poll_interval=0.001
+            self.assertIsNotNone(signer_id)
+            _, _, left, right = updater.preflight_packages(
+                left_path=package_paths[ota.TARGET_LEFT],
+                right_path=package_paths[ota.TARGET_RIGHT],
+                public_key=public_path,
+                public_key_sha256=hashlib.sha256(public_bytes).hexdigest(),
+                signer_key_id=signer_id,
             )
+        self.assertEqual(left.role, ota.TARGET_LEFT)
+        self.assertEqual(right.role, ota.TARGET_RIGHT)
 
-    def _run_pair_confirm(self, transport: PairConfirmTransport) -> int:
-        argv = [
-            "pair-confirm", "--port", "COM3", "--allow-confirm",
-            "--target-generation", "5", "--peer-confirm-timeout", "0.02",
-            "--peer-confirm-poll", "0.001", "--peer-settle", "0",
-            "--right-image-sha256", STATUS_IMAGE_SHA.hex(),
-            "--left-image-sha256", STATUS_IMAGE_SHA.hex(),
-            "--right-manifest-sha256", STATUS_MANIFEST_SHA.hex(),
-            "--left-manifest-sha256", STATUS_MANIFEST_SHA.hex(),
-            "--timeout", "0.01", "--retries", "0",
-            "--transaction-id", "1234",
+    def test_fresh_updates_wait_for_confirm_readiness_on_both_boards(self) -> None:
+        for role in (ota.TARGET_RIGHT, ota.TARGET_LEFT):
+            with self.subTest(role=role):
+                board_manifest = manifest(role)
+                client = mock.Mock(transaction_id=41)
+                preflight_status = status(role=role)
+                prepared = status(
+                    role=role, state=ota.STATE_PREPARED, tx=41,
+                    target_generation=7, target_hash=HASH_A,
+                    manifest_hash=ota._sha256(board_manifest.wire),
+                    image_size=4096, next_offset=4096,
+                )
+                client.status.return_value = prepared
+                unready = status(role=role, state=ota.STATE_PENDING_CONFIRM,
+                                 flags=0)
+                ready = status(role=role, state=ota.STATE_PENDING_CONFIRM)
+                idle = status(role=role)
+                client.status.side_effect = [prepared, unready, ready, idle]
+
+                with mock.patch.object(
+                    ota, "_preflight_board",
+                    return_value=(client, "update", preflight_status),
+                ), mock.patch.object(ota.time, "sleep"):
+                    if role == ota.TARGET_RIGHT:
+                        ota._update_right(
+                            ClosedTransport(), b"package", board_manifest,
+                            request_timeout=1, retries=0, boot_timeout=1,
+                        )
+                    else:
+                        first, reopened = ClosedTransport(), ClosedTransport()
+                        with mock.patch.object(ota, "OtaClient", return_value=client):
+                            ota._update_left(
+                                first, lambda: reopened, b"package", board_manifest,
+                                request_timeout=1, retries=0, boot_timeout=1,
+                            )
+                client.confirm.assert_called_once_with()
+
+    def test_reruns_wait_for_confirm_readiness_on_both_boards(self) -> None:
+        for role in (ota.TARGET_RIGHT, ota.TARGET_LEFT):
+            with self.subTest(role=role):
+                board_manifest = manifest(role)
+                client = mock.Mock()
+                unready = status(role=role, state=ota.STATE_PENDING_CONFIRM,
+                                 flags=0)
+                ready = status(role=role, state=ota.STATE_PENDING_CONFIRM)
+                idle = status(role=role)
+                client.status.side_effect = [unready, ready, idle]
+
+                with mock.patch.object(ota, "OtaClient", return_value=client), \
+                        mock.patch.object(ota.time, "sleep"):
+                    _, action, final = ota._preflight_board(
+                        ClosedTransport(), target=role, manifest=board_manifest,
+                        request_timeout=1, retries=0, boot_timeout=1,
+                    )
+                self.assertEqual(action, "confirmed")
+                self.assertEqual(final, idle)
+                client.confirm.assert_called_once_with()
+
+    def test_left_activate_closes_and_reopens_transport(self) -> None:
+        first, second = ClosedTransport(), ClosedTransport()
+        clients: list[mock.Mock] = []
+
+        def make_client(*args: object, **kwargs: object) -> mock.Mock:
+            client = mock.Mock()
+            client.transaction_id = 41
+            client.status.side_effect = [
+                status(role=ota.TARGET_LEFT,
+                       state=ota.STATE_PENDING_CONFIRM),
+                status(role=ota.TARGET_LEFT),
+            ]
+            clients.append(client)
+            return client
+
+        preflight_client = mock.Mock(transaction_id=41)
+        with mock.patch.object(
+            ota, "_preflight_board", return_value=(preflight_client, "update",
+                                                    status(role=ota.TARGET_LEFT)),
+        ), mock.patch.object(ota, "OtaClient", side_effect=make_client), \
+                mock.patch.object(ota, "_prepared_exact", return_value=True), \
+                mock.patch.object(ota.time, "sleep"):
+            reopened, action, _ = ota._update_left(
+                first, lambda: second, b"package", manifest(ota.TARGET_LEFT),
+                request_timeout=1, retries=0, boot_timeout=1,
+            )
+        self.assertTrue(first.closed)
+        self.assertIs(reopened, second)
+        self.assertEqual(action, "updated")
+        preflight_client.activate.assert_called_once_with()
+
+    def test_rerun_uses_idle_pending_and_transient_board_facts(self) -> None:
+        board_manifest = manifest()
+        idle_client = mock.Mock()
+        idle_client.status.return_value = status()
+        with mock.patch.object(ota, "OtaClient", return_value=idle_client):
+            _, action, _ = ota._preflight_board(
+                ClosedTransport(), target=ota.TARGET_RIGHT,
+                manifest=board_manifest, request_timeout=1, retries=0,
+                boot_timeout=1,
+            )
+        self.assertEqual(action, "skipped")
+        idle_client.exit_maintenance.assert_called_once_with()
+        idle_client.abort.assert_not_called()
+
+        pending_client = mock.Mock()
+        pending_client.status.side_effect = [
+            status(state=ota.STATE_PENDING_CONFIRM), status()
         ]
-        printed = []
-        with mock.patch.object(ota, "SerialTransport", return_value=transport), \
-                mock.patch.object(ota.time, "sleep"), \
-                mock.patch.object(ota, "_print", side_effect=printed.append):
-            result = ota.main(argv)
-        self.last_pair_result = printed[0] if printed else None
-        return result
+        with mock.patch.object(ota, "OtaClient", return_value=pending_client), \
+                mock.patch.object(ota.time, "sleep"):
+            _, action, _ = ota._preflight_board(
+                ClosedTransport(), target=ota.TARGET_RIGHT,
+                manifest=board_manifest, request_timeout=1, retries=0,
+                boot_timeout=1,
+            )
+        self.assertEqual(action, "confirmed")
+        pending_client.confirm.assert_called_once_with()
+        pending_client.exit_maintenance.assert_called_once_with()
+        pending_client.abort.assert_not_called()
 
-    def test_pair_confirm_skips_left_confirm_after_lost_ack_idle_rerun(self) -> None:
-        # This is the observed recovery state: the first run confirmed both
-        # boards, but the host lost the final response before saving the
-        # journal.  A retry must be read-only and must not send Confirm to the
-        # already-idle left manager.
-        transport = PairConfirmTransport(
-            right_statuses=[
-                (ota.STATE_MAINTENANCE, 0, 5, HEALTHY_OTA_FLAGS),
-            ],
-            left_statuses=[(ota.STATE_IDLE, 0, 5, 0)],
+        status_client, abort_client, fresh_client = mock.Mock(), mock.Mock(), mock.Mock()
+        status_client.status.return_value = status(
+            state=ota.STATE_RECEIVING, tx=99, target_generation=7,
+            target_hash=HASH_A, manifest_hash=HASH_B, image_size=4096,
         )
-        self.assertEqual(self._run_pair_confirm(transport), 2)
-        self.assertNotIn(ota.CMD_CONFIRM, [frame.command for frame in transport.writes])
+        with mock.patch.object(
+            ota, "OtaClient", side_effect=[status_client, abort_client, fresh_client]
+        ) as constructor:
+            selected, action, _ = ota._preflight_board(
+                ClosedTransport(), target=ota.TARGET_RIGHT,
+                manifest=board_manifest, request_timeout=1, retries=0,
+                boot_timeout=1,
+            )
+        self.assertIs(selected, fresh_client)
+        self.assertEqual(action, "update")
+        self.assertEqual(constructor.call_args_list[1].kwargs["transaction_id"], 99)
+        abort_client.abort.assert_called_once_with()
 
-    def test_pair_confirm_accepts_exact_completed_tombstones(self) -> None:
-        transport = PairConfirmTransport(
-            right_statuses=[
-                (ota.STATE_CONFIRMED, 5, 5, HEALTHY_OTA_FLAGS),
-            ],
-            left_statuses=[
-                (ota.STATE_CONFIRMED, 5, 5, HEALTHY_OTA_FLAGS),
-            ],
-        )
-        self.assertEqual(self._run_pair_confirm(transport), 0)
-        self.assertEqual(self.last_pair_result["confirm_order"], [])
-        self.assertEqual(self.last_pair_result["confirm_skipped"], ["right", "left"])
-        self.assertNotIn(ota.CMD_CONFIRM, [frame.command for frame in transport.writes])
+    def test_confirm_ack_loss_is_reconciled_by_idle_fact(self) -> None:
+        client = mock.Mock(transaction_id=77)
+        client.confirm.side_effect = ota.OtaToolError("lost ACK")
+        prepared = status(state=ota.STATE_PREPARED, tx=77,
+                          target_generation=7, target_hash=HASH_A,
+                          manifest_hash=HASH_B, image_size=4096,
+                          next_offset=4096)
+        client.status.side_effect = [prepared,
+                                     status(state=ota.STATE_PENDING_CONFIRM),
+                                     status()]
+        with mock.patch.object(
+            ota, "_preflight_board", return_value=(client, "update", status())
+        ), mock.patch.object(ota, "_prepared_exact", return_value=True), \
+                mock.patch.object(ota.time, "sleep"):
+            action, final = ota._update_right(
+                ClosedTransport(), b"package", manifest(), request_timeout=1,
+                retries=0, boot_timeout=1,
+            )
+        self.assertEqual(action, "updated")
+        self.assertEqual(final.state, ota.STATE_IDLE)
+        client.exit_maintenance.assert_called_once_with()
+        client.abort.assert_not_called()
 
-    def test_pair_confirm_rejects_wrong_left_generation_or_state_before_write(self) -> None:
-        wrong_generation = PairConfirmTransport(
-            right_statuses=[
-                (ota.STATE_CONFIRMED, 5, 5, HEALTHY_OTA_FLAGS),
-            ],
-            left_statuses=[(ota.STATE_PENDING_CONFIRM, 4, 5, 0)],
-        )
-        self.assertEqual(self._run_pair_confirm(wrong_generation), 2)
-        self.assertNotIn(ota.CMD_CONFIRM,
-                          [frame.command for frame in wrong_generation.writes])
-
-        activation_pending = PairConfirmTransport(
-            right_statuses=[
-                (ota.STATE_MAINTENANCE, 0, 5, HEALTHY_OTA_FLAGS),
-            ],
-            left_statuses=[(ota.STATE_ACTIVATION_PENDING, 5, 5, 0)],
-        )
-        self.assertEqual(self._run_pair_confirm(activation_pending), 2)
-        self.assertNotIn(ota.CMD_CONFIRM,
-                          [frame.command for frame in activation_pending.writes])
-
-    def test_pair_confirm_normal_pending_state_confirms_both_in_order(self) -> None:
-        transport = PairConfirmTransport(
-            right_statuses=[
-                (ota.STATE_PENDING_CONFIRM, 5, 5, 0),
-                (ota.STATE_CONFIRMED, 5, 5, HEALTHY_OTA_FLAGS),
-            ],
-            # Initial preflight, recheck immediately before left.confirm, and
-            # the status inside OtaClient.confirm.
-            left_statuses=[
-                (ota.STATE_PENDING_CONFIRM, 5, 5, 0),
-                (ota.STATE_PENDING_CONFIRM, 5, 5, 0),
-                (ota.STATE_PENDING_CONFIRM, 5, 5, 0),
-            ],
-        )
-        self.assertEqual(self._run_pair_confirm(transport), 0)
-        self.assertEqual(self.last_pair_result["confirm_order"], ["right", "left"])
-        self.assertEqual(self.last_pair_result["confirm_skipped"], [])
-        confirms = [
-            frame.target for frame in transport.writes
-            if frame.command == ota.CMD_CONFIRM
+    def test_activate_ack_loss_continues_from_observed_board_facts(self) -> None:
+        board_manifest = manifest()
+        client = mock.Mock(transaction_id=77)
+        client.activate.side_effect = ota.OtaToolError("lost ACTIVATE ACK")
+        client.status.side_effect = [
+            status(state=ota.STATE_PREPARED, tx=77,
+                   target_generation=7, target_hash=HASH_A,
+                   manifest_hash=ota._sha256(board_manifest.wire),
+                   image_size=4096, next_offset=4096),
+            status(state=ota.STATE_PENDING_CONFIRM),
+            status(),
         ]
-        self.assertEqual(confirms, [ota.TARGET_RIGHT, ota.TARGET_LEFT])
+        with mock.patch.object(
+            ota, "_preflight_board", return_value=(client, "update", status())
+        ), mock.patch.object(ota.time, "sleep"):
+            action, final = ota._update_right(
+                ClosedTransport(), b"package", board_manifest,
+                request_timeout=1, retries=0, boot_timeout=1,
+            )
+        self.assertEqual(action, "updated")
+        self.assertEqual(final.state, ota.STATE_IDLE)
+        client.confirm.assert_called_once_with()
+        client.exit_maintenance.assert_called_once_with()
 
-    def test_pair_confirm_reports_mixed_confirmed_and_pending_roles(self) -> None:
-        transport = PairConfirmTransport(
-            right_statuses=[
-                (ota.STATE_CONFIRMED, 5, 5, HEALTHY_OTA_FLAGS),
-            ],
-            left_statuses=[
-                (ota.STATE_PENDING_CONFIRM, 5, 5, 0),
-                (ota.STATE_PENDING_CONFIRM, 5, 5, 0),
-                (ota.STATE_PENDING_CONFIRM, 5, 5, 0),
-            ],
+    def test_left_activate_ack_loss_reopens_and_uses_status_facts(self) -> None:
+        board_manifest = manifest(ota.TARGET_LEFT)
+        first, reopened = ClosedTransport(), ClosedTransport()
+        activating = mock.Mock(transaction_id=77)
+        activating.activate.side_effect = ota.OtaToolError("lost ACTIVATE ACK")
+        activating.status.return_value = status(
+            role=ota.TARGET_LEFT, state=ota.STATE_PREPARED, tx=77,
+            target_generation=7, target_hash=HASH_A,
+            manifest_hash=ota._sha256(board_manifest.wire),
+            image_size=4096, next_offset=4096,
         )
-        self.assertEqual(self._run_pair_confirm(transport), 0)
-        self.assertEqual(self.last_pair_result["confirm_order"], ["left"])
-        self.assertEqual(self.last_pair_result["confirm_skipped"], ["right"])
+        after_reboot = mock.Mock()
+        after_reboot.status.side_effect = [
+            status(role=ota.TARGET_LEFT, state=ota.STATE_PENDING_CONFIRM),
+            status(role=ota.TARGET_LEFT),
+        ]
+        with mock.patch.object(
+            ota, "_preflight_board",
+            return_value=(activating, "update", status(role=ota.TARGET_LEFT)),
+        ), mock.patch.object(ota, "OtaClient", return_value=after_reboot), \
+                mock.patch.object(ota.time, "sleep"):
+            transport, action, final = ota._update_left(
+                first, lambda: reopened, b"package", board_manifest,
+                request_timeout=1, retries=0, boot_timeout=1,
+            )
+        self.assertTrue(first.closed)
+        self.assertIs(transport, reopened)
+        self.assertEqual(action, "updated")
+        self.assertEqual(final.state, ota.STATE_IDLE)
+        after_reboot.confirm.assert_called_once_with()
 
-    def test_pair_parser_has_one_explicit_port(self) -> None:
-        parser = ota._parser()
-        pair = next(action for action in parser._subparsers._group_actions[0].choices.values()
-                     if action.prog.endswith("pair-prepare"))
-        names = {option for action in pair._actions for option in action.option_strings}
-        self.assertIn("--port", names)
-        self.assertNotIn("--left-port", names)
-        self.assertNotIn("--right-port", names)
+    def test_confirm_request_loss_retries_from_pending_confirm_fact(self) -> None:
+        client = mock.Mock(transaction_id=77)
+        pending = status(state=ota.STATE_PENDING_CONFIRM)
+        healthy = status()
+        client.status.side_effect = [pending, pending, pending, healthy]
 
-    def test_prepare_failure_attempts_abort_and_status(self) -> None:
-        transport = MockTransport(fail_manifest=True)
-        client = ota.OtaClient(transport, target=ota.TARGET_LEFT, transaction_id=10, timeout=0.01)
-        manifest = ota.sign_manifest(self.manifest(), self.private_path)
-        with self.assertRaises(ota.OtaNack):
-            client.prepare(manifest.wire + self.image, allow_ota=True)
-        commands = [frame.command for frame in transport.writes]
-        self.assertIn(ota.CMD_ABORT, commands)
-        self.assertIn(ota.CMD_STATUS, commands)
+        with mock.patch.object(
+            ota, "_preflight_board", return_value=(client, "update", status())
+        ), mock.patch.object(ota, "_prepared_exact", return_value=True):
+            action, final = ota._update_right(
+                ClosedTransport(), b"package", manifest(), request_timeout=1,
+                retries=0, boot_timeout=1,
+            )
 
-    def test_prepare_failure_never_aborts_ambiguous_activated_state(self) -> None:
-        transport = MockTransport(
-            fail_manifest=True,
-            status_state=ota.STATE_ACTIVATION_PENDING,
-            status_flags=ota.STATUS_PENDING_VERIFY,
-        )
-        client = ota.OtaClient(
-            transport, target=ota.TARGET_LEFT, transaction_id=10, timeout=0.01
-        )
-        manifest = ota.sign_manifest(self.manifest(), self.private_path)
-        with self.assertRaises(ota.OtaNack):
-            client.prepare(manifest.wire + self.image, allow_ota=True)
-        commands = [frame.command for frame in transport.writes]
-        self.assertIn(ota.CMD_STATUS, commands)
-        self.assertNotIn(ota.CMD_ABORT, commands)
+        self.assertEqual(action, "updated")
+        self.assertEqual(final, healthy)
+        self.assertEqual(client.confirm.call_count, 2)
+        client.exit_maintenance.assert_called_once_with()
 
-    def test_authorizations_are_independent(self) -> None:
-        transport = MockTransport()
-        client = ota.OtaClient(transport, target=ota.TARGET_LEFT)
-        with self.assertRaises(ota.OtaToolError):
-            client.prepare(b"", allow_ota=False)
-        with self.assertRaises(ota.OtaToolError):
-            client.activate(allow_activate=False)
-        with self.assertRaises(ota.OtaToolError):
-            client.confirm(allow_confirm=False)
-        self.assertEqual(transport.writes, [])
+    def test_confirm_ack_loss_converges_when_status_is_idle(self) -> None:
+        client = mock.Mock()
+        client.confirm.side_effect = ota.OtaToolError("lost ACK")
+        pending = status(state=ota.STATE_PENDING_CONFIRM)
+        healthy = status()
+        client.status.side_effect = [pending, healthy]
 
-    def test_explicit_package_hash_is_stable(self) -> None:
-        manifest = ota.sign_manifest(self.manifest(), self.private_path)
-        package = manifest.wire + self.image
-        first = ota.package_info(package)["package_sha256"]
-        second = ota.package_info(package)["package_sha256"]
-        self.assertEqual(first, second)
+        with mock.patch.object(ota, "OtaClient", return_value=client), \
+                mock.patch.object(ota.time, "sleep"):
+            _, action, final = ota._preflight_board(
+                ClosedTransport(), target=ota.TARGET_RIGHT,
+                manifest=manifest(), request_timeout=1, retries=0,
+                boot_timeout=1,
+            )
 
+        self.assertEqual(action, "confirmed")
+        self.assertEqual(final, healthy)
+        client.confirm.assert_called_once_with()
+        client.exit_maintenance.assert_called_once_with()
 
-class StatusV2JsonTest(unittest.TestCase):
-    """The JSON projection must not drop decoded board facts.
+    def test_status_command_exits_right_without_aborting_any_observed_state(self) -> None:
+        for state_value in (ota.STATE_RECEIVING, ota.STATE_PREPARED,
+                            ota.STATE_PENDING_CONFIRM):
+            with self.subTest(state=state_value):
+                client = mock.Mock()
+                observed = status(
+                    state=state_value,
+                    tx=17 if state_value != ota.STATE_PENDING_CONFIRM else 0,
+                    target_generation=(7 if state_value !=
+                                       ota.STATE_PENDING_CONFIRM else 0),
+                    target_hash=(HASH_A if state_value !=
+                                 ota.STATE_PENDING_CONFIRM else bytes(32)),
+                    manifest_hash=(HASH_B if state_value !=
+                                   ota.STATE_PENDING_CONFIRM else bytes(32)),
+                    image_size=(4096 if state_value !=
+                                ota.STATE_PENDING_CONFIRM else 0),
+                    next_offset=(4096 if state_value == ota.STATE_PREPARED else 0),
+                )
+                client.status.return_value = observed
+                with mock.patch.object(ota, "_open_client", return_value=client), \
+                        mock.patch.object(ota, "_print"):
+                    self.assertEqual(
+                        ota.main(["status", "--port", "COM1", "--target", "right"]),
+                        0,
+                    )
+                client.exit_maintenance.assert_called_once_with()
+                client.abort.assert_not_called()
+                self.assertEqual(observed.state, state_value)
 
-    A hand-maintained field list in ``_frame_info`` once omitted seven decoded
-    fields, so ``update_proxy_pair.py`` rejected every board's status as
-    incomplete and no V2 update could get past discovery.  Deriving the keys
-    from the dataclass makes that class of drift impossible; this test pins the
-    contract to the orchestrator's own requirement list.
-    """
+    def test_status_command_on_left_has_no_terminal_command(self) -> None:
+        client = mock.Mock()
+        client.status.return_value = status(role=ota.TARGET_LEFT)
+        with mock.patch.object(ota, "_open_client", return_value=client), \
+                mock.patch.object(ota, "_print"):
+            self.assertEqual(
+                ota.main(["status", "--port", "COM1", "--target", "left"]), 0
+            )
+        client.abort.assert_not_called()
+        client.exit_maintenance.assert_not_called()
 
-    def status(self) -> ota.StatusPayloadV2:
-        wire = status_v2_wire(
-            role=ota.TARGET_LEFT, state=ota.STATE_IDLE,
-            last_command=ota.CMD_HELLO, transaction_id=91,
-            target_generation=7, active_generation=7,
-            flags=HEALTHY_OTA_FLAGS, completed=True,
-        )
-        return ota.decode_status_v2(wire)
-
-    def test_projection_covers_every_dataclass_field(self) -> None:
-        status = self.status()
-        payload = ota.status_v2_json(status)
-        for field in ota.dataclass_fields(status):
-            self.assertIn(field.name, payload)
-        self.assertEqual(payload["version"], 2)
-
-    def test_projection_satisfies_orchestrator_requirements(self) -> None:
-        sys.path.insert(0, str(ROOT / "tools"))
-        import update_proxy_pair as orchestrator  # noqa: PLC0415
-
-        payload = ota.status_v2_json(self.status())
-        missing = [name for name in orchestrator.STATUS_V2_REQUIRED_FIELDS
-                   if name not in payload]
-        self.assertEqual(missing, [])
-
-    def test_zero_active_generation_is_rejected(self) -> None:
-        """A board that answers is running an image, so it knows its own gen.
-
-        The right board's V2 builder omitted active_generation entirely while
-        its V1 builder set it, and neither validator noticed.  The host then
-        read a healthy gen16 right board as "peer generation 0" and refused
-        the rolling-activation check.
-        """
-        wire = bytearray(status_v2_wire(
-            role=ota.TARGET_RIGHT, state=ota.STATE_IDLE,
-            last_command=ota.CMD_HELLO, transaction_id=91,
-            target_generation=7, active_generation=7,
-            flags=HEALTHY_OTA_FLAGS, completed=True,
-        ))
-        self.assertIsNotNone(ota.decode_status_v2(bytes(wire)))
-        struct.pack_into("<I", wire, 32, 0)  # active_generation
-        with self.assertRaises(ota.OtaToolError):
-            ota.decode_status_v2(bytes(wire))
-
-    def test_byte_facts_are_hex_and_commands_stay_formatted(self) -> None:
-        payload = ota.status_v2_json(self.status())
-        self.assertEqual(payload["image_sha256"], STATUS_IMAGE_SHA.hex())
-        self.assertEqual(payload["app_elf_sha256"], "55" * 32)
-        self.assertEqual(payload["previous_image_sha256"], "44" * 32)
-        self.assertEqual(payload["last_command"], f"0x{ota.CMD_HELLO:02x}")
-        self.assertTrue(payload["local_validated"])
+    def test_controller_detached_fails_before_transport(self) -> None:
+        factory = mock.Mock()
+        with self.assertRaisesRegex(ota.OtaToolError, "controller_detached"):
+            ota.update_pair(
+                transport_factory=factory, right_package=b"x",
+                left_package=b"y", request_timeout=1, retries=0,
+                boot_timeout=1, progress=None, controller_detached=False,
+            )
+        factory.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -3,9 +3,6 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
-// Buffers defined here
-RingBuf<char, 512> rxBuffer;
-RingBuf<char, 512> txBuffer;
 SemaphoreHandle_t ledSemaphore;
 TaskHandle_t rxSerialTaskHandle;
 #define USB_TASK_PRIORITY 1
@@ -45,7 +42,7 @@ void EspUsbHost::begin(void)
                    host->cleanupComplete != nullptr;
         },
         [](void *context) -> bool {
-            // Pair/data-plane health remains strict and is reported separately.
+            // Peer/data-plane health remains strict and is reported separately.
             auto *host = static_cast<EspUsbHost *>(context);
             return host != nullptr && host->hostInstallStatus == ESP_OK &&
                    host->clientRegisterStatus == ESP_OK &&
@@ -137,72 +134,30 @@ void EspUsbHost::begin(void)
 
 // combine both maybe mutex?
 
-void handleSerialInput(HardwareSerial &serial, EspUsbHost *instance) {
-    while (serial.available() > 0) {
-        char byte = serial.read();
-
-        if (byte == '\r') continue;
-
-        if (!rxBuffer.isFull()) {
-            rxBuffer.push(byte);
-        } else {
-            ESP_LOGW("EspUsbHost", "RX buffer overflow detected.");
-            break;
-        }
-
-        if (byte == '\n') {
-            char commandBuffer[620];
-            int commandIndex = 0;
-
-            while (!rxBuffer.isEmpty() && commandIndex < sizeof(commandBuffer) - 1) {
-                rxBuffer.pop(commandBuffer[commandIndex++]);
-                if (commandBuffer[commandIndex - 1] == '\n') break;
-            }
-
-            commandBuffer[commandIndex] = '\0';
-
-            if (commandIndex > 0 && commandBuffer[commandIndex - 1] == '\n') {
-                commandBuffer[commandIndex - 1] = '\0';
-            }
-
-            instance->handleIncomingCommands(commandBuffer, false);
-        }
-    }
-}
-
 void EspUsbHost::receiveSerial0(void *arg)
 {
     EspUsbHost *instance = static_cast<EspUsbHost *>(arg);
+    char commandBuffer[620] = {};
+    size_t commandLength = 0;
+
     while (true) {
-        vTaskDelay(pdMS_TO_TICKS(1));                                                               // Set 1ms, be lazy be happy
-        handleSerialInput(Serial0, instance);
-    }
-}
-
-// GO-1 diagnostic (remove after GO-1): UART1 RX hardware error counters.
-// Discriminates the DATA#1 head-loss mechanism: FIFO_OVF means the RX ISR was
-// stalled and bytes died in the 128-byte hardware FIFO, BUFFER_FULL means the
-// 8248-byte driver ring overflowed (RX task stalled), zero counts alongside a
-// corrupted frame means the bytes never left the left board intact.
-// Non-static: ota_receiver.cpp reports the totals in its end-of-prepare crumb.
-volatile uint32_t serial1RxFifoOvf = 0;
-volatile uint32_t serial1RxBufferFull = 0;
-volatile uint32_t serial1RxFrameErr = 0;
-
-static void countSerial1RxError(hardwareSerial_error_t error)
-{
-    switch (error) {
-    case UART_FIFO_OVF_ERROR:
-        ++serial1RxFifoOvf;
-        break;
-    case UART_BUFFER_FULL_ERROR:
-        ++serial1RxBufferFull;
-        break;
-    case UART_FRAME_ERROR:
-        ++serial1RxFrameErr;
-        break;
-    default:
-        break;
+        while (Serial0.available() > 0) {
+            const char byte = static_cast<char>(Serial0.read());
+            if (byte == '\r') continue;
+            if (byte == '\n') {
+                commandBuffer[commandLength] = '\0';
+                if (commandLength != 0) {
+                    instance->handleIncomingCommands(commandBuffer, false);
+                }
+                commandLength = 0;
+            } else if (commandLength < sizeof(commandBuffer) - 1) {
+                commandBuffer[commandLength++] = byte;
+            } else {
+                commandLength = 0;
+                ESP_LOGW("EspUsbHost", "Serial0 command overflow detected.");
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
@@ -214,12 +169,22 @@ void EspUsbHost::receiveSerial1(void *arg)
     size_t commandLength = 0;
     uint8_t otaMagicPending[sizeof(makcm::ota::kMagic)] = {};
     size_t otaMagicRun = 0;
-    Serial1.onReceiveError(countSerial1RxError);
+    bool maintenanceActive = otaReceiver.isMaintenanceActive();
+    const auto resetForMaintenanceTransition = [&]() {
+        const bool active = otaReceiver.isMaintenanceActive();
+        if (active == maintenanceActive) return;
+        maintenanceActive = active;
+        decoder.reset();
+        commandLength = 0;
+        otaMagicRun = 0;
+        memset(otaMagicPending, 0, sizeof(otaMagicPending));
+    };
 
     while (true) {
         while (Serial1.available() > 0) {
+            resetForMaintenanceTransition();
             const uint8_t byte = static_cast<uint8_t>(Serial1.read());
-            if (otaReceiver.isMaintenanceActive()) {
+            if (maintenanceActive) {
                 if (otaReceiver.decoderBuffered() != 0) {
                     otaReceiver.feed(byte);
                     continue;
@@ -230,8 +195,7 @@ void EspUsbHost::receiveSerial1(void *arg)
                 // The previous "commandLength == 0" boundary rule let a
                 // single glitched frame poison the line buffer with binary
                 // residue, after which every retransmitted frame's 'M'
-                // arrived mid-"line" and was eaten too -- one wire glitch
-                // became a permanent DATA deadlock (GO-1 run tx=824070015).
+                // arrived mid-"line" and was eaten too.
                 // Spilling a failed prefix keeps OTA_MAINT_BEGIN intact:
                 // its mid-line 'M' is held, then re-emitted as text when
                 // 'A' breaks the run.
@@ -246,19 +210,6 @@ void EspUsbHost::receiveSerial1(void *arg)
                     continue;
                 }
                 if (otaMagicRun != 0) {
-                    // GO-1 diagnostic crumb (remove after GO-1): a 2+ byte
-                    // magic prefix that failed mid-run is a strong hint of
-                    // wire corruption inside a real frame header.
-                    if (otaMagicRun >= 2) {
-                        static uint8_t nearMissCrumbs = 0;
-                        if (nearMissCrumbs < 3) {
-                            ++nearMissCrumbs;
-                            char crumb[32];
-                            snprintf(crumb, sizeof(crumb), "OTA_MF S n=%u\n",
-                                     static_cast<unsigned>(otaMagicRun));
-                            otaReceiver.sendText(crumb);
-                        }
-                    }
                     for (size_t i = 0; i < otaMagicRun; ++i) {
                         if (commandLength < sizeof(commandBuffer) - 1) {
                             commandBuffer[commandLength++] =
@@ -277,20 +228,6 @@ void EspUsbHost::receiveSerial1(void *arg)
                 if (byte == '\n') {
                     commandBuffer[commandLength] = '\0';
                     if (commandLength != 0) {
-                        // GO-1 diagnostic crumb (remove after GO-1): the only
-                        // legitimate maintenance text from the left is
-                        // OTA_MAINT_BEGIN; anything else is binary debris.
-                        if (strncmp(commandBuffer, "OTA_", 4) != 0) {
-                            static uint8_t textCrumbs = 0;
-                            if (textCrumbs < 8) {
-                                ++textCrumbs;
-                                char crumb[32];
-                                snprintf(crumb, sizeof(crumb),
-                                         "OTA_MF X n=%u\n",
-                                         static_cast<unsigned>(commandLength));
-                                otaReceiver.sendText(crumb);
-                            }
-                        }
                         instance->handleIncomingCommands(commandBuffer, true);
                     }
                     commandLength = 0;
@@ -339,29 +276,7 @@ void EspUsbHost::receiveSerial1(void *arg)
         // would deadlock that acknowledgement path.
         instance->serviceOtaBootstrap();
         otaReceiver.tick();
-        // GO-1 diagnostic crumb (remove after GO-1): report UART1 RX hardware
-        // error counters the moment they move during maintenance.
-        if (otaReceiver.isMaintenanceActive()) {
-            static uint32_t reportedOvf = 0;
-            static uint32_t reportedFull = 0;
-            static uint32_t reportedFrame = 0;
-            static uint8_t errorCrumbs = 0;
-            if (errorCrumbs < 4 && (serial1RxFifoOvf != reportedOvf ||
-                                    serial1RxBufferFull != reportedFull ||
-                                    serial1RxFrameErr != reportedFrame)) {
-                ++errorCrumbs;
-                reportedOvf = serial1RxFifoOvf;
-                reportedFull = serial1RxBufferFull;
-                reportedFrame = serial1RxFrameErr;
-                char crumb[48];
-                snprintf(crumb, sizeof(crumb),
-                         "OTA_MF V ovf=%u full=%u frm=%u\n",
-                         static_cast<unsigned>(reportedOvf),
-                         static_cast<unsigned>(reportedFull),
-                         static_cast<unsigned>(reportedFrame));
-                otaReceiver.sendText(crumb);
-            }
-        }
+        resetForMaintenanceTransition();
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
@@ -741,9 +656,39 @@ void EspUsbHost::monitorInactivity(void *arg)
 {
     EspUsbHost *usbHost = static_cast<EspUsbHost *>(arg);
     uint32_t lastHelloMillis = 0;
+    uint32_t emptySinceMillis = 0;
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(100));
+
+        const bool recoveryAllowed =
+            usbHost->hostState.load(std::memory_order_acquire) ==
+                HostState::Empty &&
+            !usbHost->otaHostReserved.load(std::memory_order_acquire) &&
+            !otaReceiver.isMaintenanceActive();
+        if (!recoveryAllowed) {
+            emptySinceMillis = 0;
+        } else if (emptySinceMillis == 0) {
+            emptySinceMillis = millis();
+        } else if (millis() - emptySinceMillis >= kEnumerationWaitMs) {
+            // IDF 5.5 exposes root-port power cycling as a supported Host API.
+            // Only retry after a complete Empty-state enumeration window;
+            // Opening, Active, cleanup, and OTA ownership must never disturb
+            // downstream power.
+            const esp_err_t powerOff =
+                usb_host_lib_set_root_port_power(false);
+            esp_err_t powerOn = powerOff;
+            if (powerOff == ESP_OK) {
+                // Let the Host library consume the powered-off root-port
+                // transition before asking it to start the port again.
+                vTaskDelay(pdMS_TO_TICKS(10));
+                powerOn = usb_host_lib_set_root_port_power(true);
+            }
+            ESP_LOGW("EspUsbHost",
+                     "Empty-state root-port recovery: off=%x on=%x",
+                     powerOff, powerOn);
+            emptySinceMillis = millis();
+        }
 
         if (usbHost->hostState == HostState::Active &&
             usbHost->deviceConnected && usbHost->streamStartPending &&

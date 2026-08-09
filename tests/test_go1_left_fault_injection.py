@@ -1,279 +1,187 @@
-"""Left-board GO-1 fault-injection contracts (model only).
+"""Source contracts for the left-board RAM-only four-state OTA manager.
 
-These tests freeze the recovery decisions required before a single left-only
-Prepare/Activate attempt.  They do not flash hardware and do not claim ESP32
-power-cut fidelity; they make ACK-loss / power-window / NVS-fail behavior
-executable in CI so GO-1 cannot silently regress to safe_abort or fail-open.
+Hardware rollback and power-loss behavior still requires device testing.  These
+checks keep the host build honest about the deliberately small lifecycle and
+prevent the retired NVS journal from creeping back into the left target.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+import re
 import unittest
-from dataclasses import dataclass, replace
 
 
-VALID = "VALID"
-PENDING_VERIFY = "PENDING_VERIFY"
-ABORTED = "ABORTED"
-PREPARED = "PREPARED"
-LOCAL_VALIDATED = "LOCAL_VALIDATED"
-MAINTENANCE = "MAINTENANCE"
-IDLE = "IDLE"
-FAULT = "FAULT"
+ROOT = Path(__file__).resolve().parents[1]
+LEFT = ROOT / "MAKCM_ESP32s3_Device_Mouse_Left_IDF"
+HEADER = LEFT / "components" / "makcm_core" / "include" / "ota_update_manager.h"
+SOURCE = LEFT / "components" / "makcm_core" / "ota_update_manager.cpp"
+APP = LEFT / "main" / "app_main.cpp"
 
 
-@dataclass(frozen=True)
-class SlotState:
-    subtype: int
-    image_state: str
-    generation: int
-    image_sha: str
+class LeftOtaFourStateSourceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.header = HEADER.read_text(encoding="utf-8")
+        cls.source = SOURCE.read_text(encoding="utf-8")
+        cls.app = APP.read_text(encoding="utf-8")
 
+    def test_manager_has_no_persistent_transaction_authority(self) -> None:
+        retired = (
+            "OtaSnapshotV2",
+            "LocalRecord",
+            "SnapshotCommitFault",
+            "nvs_handle_t",
+            "nvs_open",
+            "nvs_set_blob",
+            "nvs_commit",
+            "ledger",
+            "tombstone",
+        )
+        combined = self.header + self.source
+        for token in retired:
+            with self.subTest(token=token):
+                self.assertNotIn(token, combined)
 
-@dataclass
-class LeftBoard:
-    running: SlotState
-    boot: SlotState
-    other: SlotState
-    logical: str = IDLE
-    local_validated: bool = False
-    record_tx: int = 0
-    record_phase: str = "none"
-    record_image_sha: str = ""
-    usb1_data_plane: str = "product"  # product | fail_close
-    last_persist_ok: bool = True
-    mark_valid_ok: bool | None = None
+    def test_boot_state_comes_only_from_running_partition_pending_verify(self) -> None:
+        begin = self.source[
+            self.source.index("bool OtaUpdateManager::begin") :
+            self.source.index("bool OtaUpdateManager::takeRestartRequest")
+        ]
+        self.assertIn("esp_ota_get_state_partition(running, &image_state)", begin)
+        self.assertIn("image_state == ESP_OTA_IMG_PENDING_VERIFY", begin)
+        self.assertIn("makcm::ota::State::PendingConfirm", begin)
+        self.assertIn("makcm::ota::State::Idle", begin)
+        self.assertNotIn("Receiving", begin)
+        self.assertNotIn("Prepared", begin)
 
-    def status_fact(self) -> dict[str, object]:
-        return {
-            "running_gen": self.running.generation,
-            "boot_gen": self.boot.generation,
-            "running_state": self.running.image_state,
-            "boot_state": self.boot.image_state,
-            "logical": self.logical,
-            "local_validated": self.local_validated,
-            "record_tx": self.record_tx,
-            "record_phase": self.record_phase,
-            "record_image_sha": self.record_image_sha,
-            "usb1_data_plane": self.usb1_data_plane,
-        }
+    def test_manifest_opens_ota_only_from_maintenance_idle(self) -> None:
+        manifest = self.source[
+            self.source.index("bool OtaUpdateManager::acceptManifest") :
+            self.source.index("bool OtaUpdateManager::validateFirstChunk")
+        ]
+        self.assertIn("!maintenanceExclusive()", manifest)
+        self.assertIn("state_.load() != makcm::ota::State::Idle", manifest)
+        self.assertIn("esp_ota_begin(candidate, manifest.image_size", manifest)
+        self.assertIn("State::Receiving", manifest)
 
-
-def baseline_gen5() -> LeftBoard:
-    old = SlotState(0, VALID, 5, "sha-gen5")
-    empty = SlotState(1, "EMPTY", 0, "")
-    return LeftBoard(running=old, boot=old, other=empty)
-
-
-def host_after_lost_ack(
-    board: LeftBoard,
-    *,
-    command: str,
-    expected_tx: int,
-    expected_sha: str,
-) -> str:
-    """Host policy when the write ACK is lost: never safe_abort; reconcile."""
-    fact = board.status_fact()
-    if command == "prepare":
-        if (
-            fact["record_tx"] == expected_tx
-            and fact["record_phase"] == PREPARED
-            and fact["record_image_sha"] == expected_sha
-            and fact["boot_gen"] == 5
+    def test_prepare_verifies_hash_end_descriptor_and_embedded_identity(self) -> None:
+        prepare = self.source[
+            self.source.index("bool OtaUpdateManager::prepare") :
+            self.source.index("bool OtaUpdateManager::activate")
+        ]
+        for token in (
+            "mbedtls_sha256_finish",
+            "manifest_.image_sha256",
+            "esp_ota_end",
+            "esp_ota_get_partition_description",
+            "validateEmbeddedIdentity",
+            "State::Prepared",
         ):
-            return "advance_prepared"
-        return "hold_prepare_intent"
-    if command == "activate":
-        if (
-            fact["local_validated"]
-            and fact["running_gen"] == 15
-            and fact["boot_gen"] == 15
-            and fact["running_state"] == VALID
-            and fact["record_image_sha"] == expected_sha
+            self.assertIn(token, prepare)
+
+    def test_activate_acks_before_deferred_restart(self) -> None:
+        activate = self.source[
+            self.source.index("bool OtaUpdateManager::activate") :
+            self.source.index("bool OtaUpdateManager::confirm")
+        ]
+        self.assertIn("esp_ota_set_boot_partition", activate)
+        self.assertIn("restart_requested_.store(true", activate)
+        self.assertNotIn("esp_restart", activate)
+        self.assertIn("takeRestartRequest()", self.app)
+
+    def test_confirm_requires_both_health_checks_and_marks_valid(self) -> None:
+        confirm = self.source[
+            self.source.index("bool OtaUpdateManager::confirm") :
+            self.source.index("bool OtaUpdateManager::abort")
+        ]
+        self.assertIn("local_health_check", confirm)
+        self.assertIn("peer_health_check", confirm)
+        self.assertIn("esp_ota_mark_app_valid_cancel_rollback", confirm)
+        self.assertIn("State::Idle", confirm)
+        self.assertNotIn("pair_health_check", self.header + self.app)
+
+    def test_abort_and_confirm_timeout_schedule_official_rollback(self) -> None:
+        self.assertGreaterEqual(self.source.count("rollback_requested_.store(true"), 2)
+        take = self.source[
+            self.source.index("bool OtaUpdateManager::takeRestartRequest") :
+            self.source.index("uint32_t OtaUpdateManager::statusFlags")
+        ]
+        self.assertIn("esp_ota_mark_app_invalid_rollback_and_reboot", take)
+
+    def test_status_v2_exposes_transient_fields_only_in_transient_states(self) -> None:
+        status = self.source[
+            self.source.index("bool OtaUpdateManager::fillStatusV2") :
+            self.source.index("bool OtaUpdateManager::requestMatchesCache")
+        ]
+        self.assertIn("status.partition_schema = config_.partition_schema", status)
+        self.assertIn("status.running_generation = config_.current_generation", status)
+        self.assertRegex(status, r"if \(isTransient\(status\.state\)\) \{")
+        for field in (
+            "status.transaction_id",
+            "status.target_generation",
+            "status.image_size",
+            "status.target_image_sha256",
+            "status.manifest_sha256",
         ):
-            return "advance_local_validated"
-        if fact["boot_gen"] == 15 and fact["running_state"] == PENDING_VERIFY:
-            return "hold_activate_intent_pending_verify"
-        return "hold_activate_intent_ambiguous"
-    raise AssertionError(f"unknown command {command}")
+            self.assertIn(field, status)
 
+    def test_status_v2_uses_boot_cached_running_image_metadata(self) -> None:
+        begin = self.source[
+            self.source.index("bool OtaUpdateManager::begin") :
+            self.source.index("bool OtaUpdateManager::takeRestartRequest")
+        ]
+        status = self.source[
+            self.source.index("bool OtaUpdateManager::fillStatusV2") :
+            self.source.index("bool OtaUpdateManager::requestMatchesCache")
+        ]
+        self.assertIn("esp_partition_get_sha256", begin)
+        self.assertIn("esp_ota_get_partition_description", begin)
+        self.assertNotIn("esp_partition_get_sha256", status)
+        self.assertNotIn("esp_ota_get_partition_description", status)
+        self.assertIn("running_image_metadata_valid_", status)
 
-def apply_prepare(board: LeftBoard, tx: int, image_sha: str, persist_ok: bool) -> LeftBoard:
-    next_board = replace(board)
-    next_board.usb1_data_plane = "fail_close"
-    if not persist_ok:
-        next_board.last_persist_ok = False
-        next_board.logical = FAULT
-        next_board.record_phase = "none"
-        return next_board
-    next_board.last_persist_ok = True
-    next_board.logical = MAINTENANCE
-    next_board.record_tx = tx
-    next_board.record_phase = PREPARED
-    next_board.record_image_sha = image_sha
-    # Prepare must not flip boot slot.
-    next_board.boot = board.boot
-    next_board.other = SlotState(1, PREPARED, 15, image_sha)
-    return next_board
-
-
-def apply_activate_set_boot(board: LeftBoard, persist_ok: bool) -> LeftBoard:
-    next_board = replace(board)
-    if board.record_phase != PREPARED:
-        next_board.logical = FAULT
-        return next_board
-    if not persist_ok:
-        next_board.last_persist_ok = False
-        next_board.logical = FAULT
-        next_board.usb1_data_plane = "fail_close"
-        return next_board
-    next_board.boot = SlotState(1, PENDING_VERIFY, 15, board.record_image_sha)
-    next_board.logical = MAINTENANCE
-    next_board.record_phase = "activate_intent"
-    return next_board
-
-
-def first_boot_pending(board: LeftBoard) -> LeftBoard:
-    """Bootloader selected the pending slot; app has not marked valid yet."""
-    next_board = replace(board)
-    next_board.running = SlotState(1, PENDING_VERIFY, 15, board.record_image_sha)
-    next_board.boot = next_board.running
-    next_board.other = SlotState(0, VALID, 5, "sha-gen5")
-    next_board.local_validated = False
-    next_board.logical = MAINTENANCE
-    next_board.usb1_data_plane = "fail_close"
-    next_board.mark_valid_ok = None
-    return next_board
-
-
-def power_cut_before_mark(board: LeftBoard) -> LeftBoard:
-    """Unsigned reset while still PENDING_VERIFY -> next boot ABORTS new slot."""
-    next_board = replace(board)
-    next_board.running = SlotState(0, VALID, 5, "sha-gen5")
-    next_board.boot = next_board.running
-    next_board.other = SlotState(1, ABORTED, 15, board.record_image_sha)
-    next_board.local_validated = False
-    next_board.logical = FAULT
-    next_board.usb1_data_plane = "fail_close"
-    next_board.mark_valid_ok = False
-    return next_board
-
-
-def mark_valid(board: LeftBoard, persist_ok: bool) -> LeftBoard:
-    next_board = replace(board)
-    next_board.usb1_data_plane = "fail_close"
-    if board.running.image_state != PENDING_VERIFY:
-        next_board.logical = FAULT
-        next_board.mark_valid_ok = False
-        return next_board
-    if not persist_ok:
-        next_board.last_persist_ok = False
-        next_board.logical = FAULT
-        next_board.local_validated = False
-        next_board.mark_valid_ok = False
-        # Image state may still be PENDING_VERIFY; must not claim VALID.
-        return next_board
-    next_board.running = SlotState(1, VALID, 15, board.record_image_sha)
-    next_board.boot = next_board.running
-    next_board.local_validated = True
-    next_board.logical = MAINTENANCE
-    next_board.record_phase = LOCAL_VALIDATED
-    next_board.mark_valid_ok = True
-    return next_board
-
-
-def power_cut_after_mark(board: LeftBoard) -> LeftBoard:
-    next_board = replace(board)
-    # Confirm is intentionally absent for GO-1; VALID must stick.
-    next_board.running = SlotState(1, VALID, 15, board.record_image_sha)
-    next_board.boot = next_board.running
-    next_board.other = SlotState(0, VALID, 5, "sha-gen5")
-    next_board.local_validated = True
-    next_board.logical = MAINTENANCE
-    next_board.usb1_data_plane = "fail_close"
-    return next_board
-
-
-class Go1LeftFaultInjectionTests(unittest.TestCase):
-    def test_prepare_ack_loss_reconciles_without_safe_abort(self) -> None:
-        board = apply_prepare(baseline_gen5(), tx=42, image_sha="sha-gen15", persist_ok=True)
-        decision = host_after_lost_ack(
-            board, command="prepare", expected_tx=42, expected_sha="sha-gen15"
+    def test_handle_validates_shared_frame_flags_before_cache_lookup(self) -> None:
+        handle = self.source[
+            self.source.index("bool OtaUpdateManager::handle") :
+            self.source.index("bool OtaUpdateManager::enter")
+        ]
+        validation = "makcm::ota::validFrameFlags(request.command, request.flags)"
+        self.assertIn(validation, handle)
+        self.assertLess(
+            handle.index(validation), handle.index("requestMatchesCache(request)")
         )
-        self.assertEqual(decision, "advance_prepared")
-        self.assertNotEqual(decision, "safe_abort")
-        self.assertEqual(board.boot.generation, 5)
-        self.assertEqual(board.usb1_data_plane, "fail_close")
+        self.assertIn("fillStatusV2(request, response)", handle)
+        self.assertNotIn("Command::StatusResponse :", handle)
 
-    def test_activate_ack_loss_while_pending_verify_holds_intent(self) -> None:
-        board = apply_prepare(baseline_gen5(), tx=7, image_sha="sha-gen15", persist_ok=True)
-        board = apply_activate_set_boot(board, persist_ok=True)
-        board = first_boot_pending(board)
-        decision = host_after_lost_ack(
-            board, command="activate", expected_tx=7, expected_sha="sha-gen15"
+    def test_only_current_transfer_mutations_can_clear_transient_state(self) -> None:
+        helper_start = self.source.index("bool isTransferMutation")
+        helpers = self.source[
+            helper_start:self.source.index("bool isCacheable", helper_start)
+        ]
+        handle = self.source[
+            self.source.index("bool OtaUpdateManager::handle") :
+            self.source.index("bool OtaUpdateManager::enter")
+        ]
+        self.assertIn("isTransferMutation", helpers)
+        for command in ("Manifest", "Data", "Prepare", "Activate"):
+            self.assertIn(f"Command::{command}", helpers)
+        for command in (
+            "Hello", "Status", "ExitMaintenance", "Abort", "Confirm",
+            "EnterMaintenance", "Ack", "Nack", "StatusResponse",
+        ):
+            self.assertNotIn(f"Command::{command}", helpers)
+        clear = handle[handle.index("if (!ok &&") : handle.index("clearTransfer(now_ms)")]
+        self.assertIn("valid_flags", clear)
+        self.assertIn("request.target == config_.role", clear)
+        self.assertIn("request.transaction_id == transaction_id_", clear)
+        self.assertIn("isTransferMutation(request.command)", clear)
+
+    def test_no_retired_ota_states_remain_in_left_integration(self) -> None:
+        combined = self.header + self.source + self.app
+        self.assertIsNone(
+            re.search(r"makcm::ota::State::(?:Fault|Maintenance|Confirmed|ActivationPending)", combined)
         )
-        self.assertEqual(decision, "hold_activate_intent_pending_verify")
-        self.assertNotIn("abort", decision)
-
-    def test_activate_ack_loss_after_local_validated_advances(self) -> None:
-        board = apply_prepare(baseline_gen5(), tx=7, image_sha="sha-gen15", persist_ok=True)
-        board = apply_activate_set_boot(board, persist_ok=True)
-        board = first_boot_pending(board)
-        board = mark_valid(board, persist_ok=True)
-        decision = host_after_lost_ack(
-            board, command="activate", expected_tx=7, expected_sha="sha-gen15"
-        )
-        self.assertEqual(decision, "advance_local_validated")
-
-    def test_power_cut_before_mark_returns_old_valid_new_aborted(self) -> None:
-        board = apply_prepare(baseline_gen5(), tx=9, image_sha="sha-gen15", persist_ok=True)
-        board = apply_activate_set_boot(board, persist_ok=True)
-        board = first_boot_pending(board)
-        board = power_cut_before_mark(board)
-        self.assertEqual(board.running.generation, 5)
-        self.assertEqual(board.running.image_state, VALID)
-        self.assertEqual(board.other.image_state, ABORTED)
-        self.assertFalse(board.local_validated)
-        self.assertEqual(board.usb1_data_plane, "fail_close")
-
-    def test_power_cut_after_mark_keeps_valid_without_pair_confirm(self) -> None:
-        board = apply_prepare(baseline_gen5(), tx=9, image_sha="sha-gen15", persist_ok=True)
-        board = apply_activate_set_boot(board, persist_ok=True)
-        board = first_boot_pending(board)
-        board = mark_valid(board, persist_ok=True)
-        board = power_cut_after_mark(board)
-        self.assertEqual(board.running.generation, 15)
-        self.assertEqual(board.running.image_state, VALID)
-        self.assertTrue(board.local_validated)
-        self.assertEqual(board.logical, MAINTENANCE)
-        self.assertEqual(board.usb1_data_plane, "fail_close")
-
-    def test_prepared_survives_reboot_without_activate(self) -> None:
-        board = apply_prepare(baseline_gen5(), tx=3, image_sha="sha-gen15", persist_ok=True)
-        rebooted = replace(board)
-        # Cold boot without Activate: still old boot slot.
-        self.assertEqual(rebooted.boot.generation, 5)
-        self.assertEqual(rebooted.record_phase, PREPARED)
-        self.assertEqual(rebooted.record_tx, 3)
-
-    def test_nvs_prepare_persist_failure_fail_closes(self) -> None:
-        board = apply_prepare(baseline_gen5(), tx=1, image_sha="sha-gen15", persist_ok=False)
-        self.assertEqual(board.logical, FAULT)
-        self.assertEqual(board.record_phase, "none")
-        self.assertEqual(board.boot.generation, 5)
-        self.assertEqual(board.usb1_data_plane, "fail_close")
-        self.assertFalse(board.local_validated)
-
-    def test_nvs_mark_persist_failure_does_not_claim_valid(self) -> None:
-        board = apply_prepare(baseline_gen5(), tx=1, image_sha="sha-gen15", persist_ok=True)
-        board = apply_activate_set_boot(board, persist_ok=True)
-        board = first_boot_pending(board)
-        board = mark_valid(board, persist_ok=False)
-        self.assertFalse(board.local_validated)
-        self.assertNotEqual(board.running.image_state, VALID)
-        self.assertEqual(board.logical, FAULT)
-        self.assertEqual(board.usb1_data_plane, "fail_close")
-        self.assertIs(board.mark_valid_ok, False)
 
 
 if __name__ == "__main__":

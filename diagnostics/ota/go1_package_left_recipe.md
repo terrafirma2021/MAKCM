@@ -48,7 +48,7 @@ diagnostics/ota/go1_freeze_20260806/left-gen15.mkota
 diagnostics/ota/go1_freeze_20260806/left-gen15.mkota.sha256.txt
 ```
 
-然后才能改 `go1_left_prepare.py` 的 `PACKAGE_SHA`（脚本在 SHA 未注入前会硬拒绝 Prepare）。
+然后才能给当时的 Prepare 操作入口注入 `PACKAGE_SHA`（在 SHA 未注入前会硬拒绝 Prepare；旧协议脚本现已移除）。
 
 ## 已完成记录（2026-08-06）
 
@@ -66,7 +66,7 @@ diagnostics/ota/go1_freeze_20260806/left-gen15.mkota.sha256.txt
 
 作废旧包 SHA `980687fb2f03cfd3d9485bd1a2ed8ea172064e0decb40bca8ea15ea733b9a25f`（min_peer=4）。
 
-`go1_left_prepare.py` 的 `PACKAGE_SHA` 已注入上述真实摘要；**仍不得无人值守 Activate**。
+当时 Prepare 操作入口的 `PACKAGE_SHA` 已注入上述真实摘要；旧协议脚本现已移除，**仍不得按历史流程无人值守 Activate**。
 
 ## 明确不做
 

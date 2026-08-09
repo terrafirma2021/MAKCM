@@ -18,7 +18,6 @@ enum class Target : uint8_t {
     Host = 0,
     Left = 1,
     Right = 2,
-    Pair = 3,
 };
 
 enum class Command : uint8_t {
@@ -31,6 +30,7 @@ enum class Command : uint8_t {
     Activate = 0x07,
     Confirm = 0x08,
     Abort = 0x09,
+    ExitMaintenance = 0x0A,
     Ack = 0x80,
     Nack = 0x81,
     StatusResponse = 0x82,
@@ -40,9 +40,8 @@ enum FrameFlags : uint8_t {
     kFlagResponse = 0x01,
     kFlagRetransmit = 0x02,
     kFlagFinal = 0x04,
-    // Negotiates the fixed, explicit Status V2 payload.  It is valid only on
-    // STATUS requests and STATUS_RESPONSE replies; V1 remains available for
-    // manual compatibility diagnostics.
+    // Negotiates the sole fixed, explicit detailed status payload. It is
+    // valid only on STATUS requests and STATUS_RESPONSE replies.
     kFlagStatusV2 = 0x08,
 };
 constexpr uint8_t kKnownFrameFlags = kFlagResponse | kFlagRetransmit |
@@ -70,30 +69,26 @@ enum class NackReason : uint16_t {
 
 enum class State : uint8_t {
     Idle = 0,
-    Maintenance = 1,
-    Receiving = 2,
-    Prepared = 3,
-    ActivationPending = 4,
-    PendingConfirm = 5,
-    Confirmed = 6,
-    Fault = 7,
+    Receiving = 1,
+    Prepared = 2,
+    PendingConfirm = 3,
 };
 
 enum StatusFlags : uint32_t {
-    kStatusPrepared = 0x0001,
-    kStatusPendingVerify = 0x0002,
-    kStatusRollbackSupported = 0x0004,
-    kStatusTrustConfigured = 0x0008,
-    kStatusPeerCompatible = 0x0010,
-    kStatusMaintenanceExclusive = 0x0020,
-    kStatusHealthPassed = 0x0040,
-    // The running slot has independently crossed the bootloader rollback
-    // boundary. Pair commit may still be pending and keep data fail-closed.
-    kStatusLocalBootValidated = 0x0080,
+    kStatusRollbackSupported = 0x0001,
+    kStatusTrustConfigured = 0x0002,
+    kStatusPeerCompatible = 0x0004,
+    kStatusMaintenanceExclusive = 0x0008,
+    kStatusHealthPassed = 0x0010,
+    kStatusLocalBootValidated = 0x0020,
 };
+constexpr uint32_t kKnownStatusFlags =
+    kStatusRollbackSupported | kStatusTrustConfigured |
+    kStatusPeerCompatible | kStatusMaintenanceExclusive |
+    kStatusHealthPassed | kStatusLocalBootValidated;
 
-constexpr size_t kStatusPayloadSize = 24;
-struct StatusPayload {
+constexpr size_t kCommandResponsePayloadSize = 24;
+struct CommandResponsePayload {
     State state = State::Idle;
     Command last_command = Command::Hello;
     NackReason reason = NackReason::None;
@@ -146,8 +141,9 @@ inline void writeLe32(uint8_t *p, uint32_t value) {
     p[3] = static_cast<uint8_t>(value >> 24);
 }
 
-inline void encodeStatusPayload(const StatusPayload &status,
-                                uint8_t out[kStatusPayloadSize]) {
+inline void encodeCommandResponsePayload(
+    const CommandResponsePayload &status,
+    uint8_t out[kCommandResponsePayloadSize]) {
     out[0] = kWireVersion;
     out[1] = static_cast<uint8_t>(status.state);
     out[2] = static_cast<uint8_t>(status.last_command);
@@ -160,15 +156,20 @@ inline void encodeStatusPayload(const StatusPayload &status,
     writeLe32(out + 20, status.status_flags);
 }
 
-inline bool decodeStatusPayload(const uint8_t *wire, size_t length,
-                                StatusPayload &status) {
-    if (wire == nullptr || length != kStatusPayloadSize ||
+inline bool decodeCommandResponsePayload(const uint8_t *wire, size_t length,
+                                         CommandResponsePayload &status) {
+    if (wire == nullptr || length != kCommandResponsePayloadSize ||
         wire[0] != kWireVersion || wire[3] != 0 || readLe16(wire + 6) != 0)
         return false;
     const auto state = static_cast<State>(wire[1]);
     const auto command = static_cast<Command>(wire[2]);
-    if (static_cast<uint8_t>(state) > static_cast<uint8_t>(State::Fault) ||
-        !validCommand(command)) return false;
+    if (static_cast<uint8_t>(state) >
+            static_cast<uint8_t>(State::PendingConfirm) ||
+        !validCommand(command) ||
+        readLe16(wire + 4) >
+            static_cast<uint16_t>(NackReason::RollbackUnavailable) ||
+        (readLe32(wire + 20) & ~kKnownStatusFlags) != 0)
+        return false;
     status.state = state;
     status.last_command = command;
     status.reason = static_cast<NackReason>(readLe16(wire + 4));
@@ -193,7 +194,7 @@ inline uint32_t crc32(const uint8_t *data, size_t length) {
 
 inline bool validTarget(Target target) {
     return target == Target::Host || target == Target::Left ||
-           target == Target::Right || target == Target::Pair;
+           target == Target::Right;
 }
 
 inline bool validCommand(Command command) {
@@ -207,6 +208,7 @@ inline bool validCommand(Command command) {
     case Command::Activate:
     case Command::Confirm:
     case Command::Abort:
+    case Command::ExitMaintenance:
     case Command::Ack:
     case Command::Nack:
     case Command::StatusResponse:
@@ -215,13 +217,39 @@ inline bool validCommand(Command command) {
     return false;
 }
 
+inline bool validFrameFlags(Command command, uint8_t flags) {
+    if ((flags & ~kKnownFrameFlags) != 0) return false;
+    switch (command) {
+    case Command::Data:
+        return (flags & ~(kFlagFinal | kFlagRetransmit)) == 0;
+    case Command::Status:
+        return flags == kFlagStatusV2 ||
+               flags == (kFlagStatusV2 | kFlagRetransmit);
+    case Command::Ack:
+    case Command::Nack:
+        return flags == kFlagResponse;
+    case Command::StatusResponse:
+        return flags == (kFlagResponse | kFlagStatusV2);
+    case Command::Hello:
+    case Command::EnterMaintenance:
+    case Command::Manifest:
+    case Command::Prepare:
+    case Command::Activate:
+    case Command::Confirm:
+    case Command::Abort:
+    case Command::ExitMaintenance:
+        return flags == 0 || flags == kFlagRetransmit;
+    }
+    return false;
+}
+
 inline size_t encodeFrame(const Frame &frame, uint8_t *wire, size_t capacity) {
     if (wire == nullptr || frame.length > kMaxChunkSize ||
         frame.transaction_id == 0 || frame.sequence == 0 ||
         frame.sequence == UINT32_MAX ||
-        (frame.flags & ~kKnownFrameFlags) != 0 ||
         !validTarget(frame.target) ||
-        !validCommand(frame.command)) return 0;
+        !validCommand(frame.command) ||
+        !validFrameFlags(frame.command, frame.flags)) return 0;
     const size_t total = kHeaderSize + frame.length + kCrcSize;
     if (capacity < total) return 0;
     memcpy(wire, kMagic, sizeof(kMagic));
@@ -263,7 +291,7 @@ inline bool decodeFrame(const uint8_t *wire, size_t length, Frame &frame) {
     frame.sequence = readLe32(wire + 20);
     if (frame.transaction_id == 0 || frame.sequence == 0 ||
         frame.sequence == UINT32_MAX ||
-        (frame.flags & ~kKnownFrameFlags) != 0)
+        !validFrameFlags(frame.command, frame.flags))
         return false;
     if (payload_length != 0)
         memcpy(frame.payload, wire + kHeaderSize, payload_length);

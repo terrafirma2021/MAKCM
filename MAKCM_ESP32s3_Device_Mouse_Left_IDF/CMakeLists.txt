@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-# This is intentionally a separate ESP-IDF project.  The Arduino/V1.6 target
-# remains the rollback image and is never pulled into this build.
+# This is the sole left-board firmware project.
 # PROJECT_VER is resolved at configure time, so CMake must be told that the
 # generation header is a configure input.  Without this a generation bump
 # recompiles the sources but leaves the app descriptor on the previous

@@ -51,44 +51,11 @@ DSE 等待设备；二者不授权夸大复用范围，但也不阻塞首台 0.2
 
 ### 0.2 固件更新唯一入口
 
-从 generation 4 起，普通 application 更新统一走可信 Linux 副机的 USB2/CH343 签名
-双板 OTA；不得再把 Windows USB1、ROM 下载口或 `flash_generic_proxy_pair.ps1` 当成日常
-更新入口：
-
-- 唯一自动编排入口为 `tools/update_proxy_pair.py`，底层继续调用
-  `tools/makcm_ota_tool.py` 的 `pair-prepare -> pair-activate -> pair-confirm`；顺序固定
-  right→left，且明确不是跨两颗 Flash 的原子提交；
-- updater 只接受已经签名的 `.mkota` application package 和生产**公钥**，不接受生产
-  私钥，不调用 esptool，也不写 bootloader/partition table/otadata；这些基础段只保留为
-  人工救砖/分区迁移路径；公钥文件还必须匹配显式固定的 `--public-key-sha256`，当前生产
-  PEM hash 为 `EE2378C2EAFAD90859D63D260CBC373C8F125D8EFCFA6427DC8A53536395D399`；
-- 必须显式给出 `/dev/ttyACM0`，并由 sysfs 复核 CH343 `VID_1A86/PID_55D3`、serial 和
-  bus path；journal 续跑及每个 prepare/activate/confirm/status 阶段前都会重验同一 identity。
-  串口被非受管进程占用时 fail-close，不自动 `kill -9`；
-- 自动流程仍要求三个独立授权 `--allow-ota --allow-activate --allow-confirm`。确实需要
-  prepare 时还要求 `--controller-detached`；如果板上已经是目标 generation/Idle，则执行
-  签名、身份和状态核验后零写返回，不要求重复拔手柄；
-- journal 以 transaction/package SHA/generation 绑定并原子持久化；中断后只续跑同一
-  release。未确认 journal 禁止被新包覆盖；已确认旧 generation 自动归档后才能创建新
-  transaction；未完成事务从私有暂存包恢复，不依赖原始发布目录。若板端已经进入
-  PendingConfirm 而主机 journal 仍停在 prepared，会先按板端持久状态推进 journal 再 confirm；
-- 验签后的左右包先复制到权限为 0700 的事务暂存目录，prepare 前再次核对 SHA-256，
-  避免源路径在验签后被替换；新包还必须同时接受“当前 generation 的旧 peer”和目标
-  generation，不能把不兼容的滚动升级交给激活阶段碰运气；
-- 可选 `--runtime-unit ai-secondary.service --runtime-scope system` 在更新前停止受管
-  Secondary，只有 pair confirm 与最终左板 `active=target/state=Idle` 都通过后才恢复。
-  runtime scope 固化在 journal 中，恢复时不允许切换；任一步失败都保持服务停止和
-  journal 可续跑，不能在混合 generation 上恢复数据面。若 unit 不存在则按 inactive
-  处理，不伪造“已停止/已恢复”事件。
-
-当前可信副机已部署 updater 到
-`/home/li/.local/share/makcm-ota/tools/update_proxy_pair.py`。generation 4 已是当前版本时的
-真实零写续跑返回 `result=confirmed`，CH343 identity 为
-`1a86:55d3/serial 5ACC041332/bus 1-7`；journal/audit 位于
-`/home/li/.local/state/makcm-ota/`。自动编排专项测试为 18/18 PASS，覆盖完整三阶段、
-prepared 续跑、激活失败 fail-close、旧 journal 归档、缺授权零写、已是目标版本零写及
-Secondary 只在 confirm 后恢复；当前副机没有安装 `ai-secondary.service`，因此本次实机
-零写复跑没有服务停启操作。
+普通 application 更新只允许可信 Linux 主机通过左板 CH343 运行
+`tools/update_proxy_pair.py --controller-detached`。工具使用当前 232-byte Status V2，
+必须先让 Right 完成接收、准备、激活、确认并回到健康 `Idle`，才开始 Left 的完整更新；
+任一步无法精确证明即停止。构建、签名、命令参数和验收证据只以
+`docs/OTA_HANDOFF_20260806.md` 为准。
 
 以下旧 DS-03 刷写、探测和 teardown 记录均保留为历史硬件证据；当前 generation 4
 部署与复验事实以第 4 节为准。
@@ -473,24 +440,6 @@ reviewed candidate 的本地 promotion 软件路径也已完成，但只授权 p
 首次重启后未热拔插的旧包只覆盖 1.486727 秒；首次 readiness 修复前的新包只覆盖
 7.730513 秒，二者都固定为 partial evidence，不能替代上述 PASS。
 
-### 2.8 Trusted-Linux 自动双板 OTA 编排
-
-`tools/update_proxy_pair.py` 已实现日常 application 更新状态机：
-
-1. 在打开串口前读取并验证左右 `.mkota` 的 application image/hash、role、相同 target
-   generation、peer generation range、生产 signer key id 和 ECDSA P-256 签名；
-2. 取得单实例文件锁，记录 CH343 sysfs identity，并原子创建/恢复 0600 journal；
-3. 可选停止 system/user scope 的受管 `ai-secondary.service`，等待底层工具确认串口无 holder；
-4. 只查询左板本地 status 进行 downgrade/already-current 判定，不使用有维护副作用的
-   standalone right status；
-5. 自动执行并逐步落盘 `pair-prepare`、right-first `pair-activate`、right-first
-   `pair-confirm`；进程在任何相邻步骤之间退出，重跑都会使用原 transaction 幂等续跑；
-6. 最终再次要求左板 `active_generation=target`、`target_generation=0`、`state=Idle`，写出
-   audit 后才允许恢复 Secondary。
-
-updater 不负责构建或持有生产私钥。固件构建产物必须先在可信签名环境生成左右角色包；
-日常 updater 只持有公钥和签名包。USB1/Windows 侧没有 OTA 检测或写入入口。
-
 ## 3. 板上计数与 gauge
 
 `km.stick.status()` 当前包含：
@@ -514,59 +463,29 @@ USB attach/detach/connect、control 和 mouse ledger 指标，两者不能互相
 ## 4. 自动验证结果
 
 - `python tests/run_host_tests.py`：19/19 PASS；
-- `python -m unittest discover -s tests -p 'test*.py'`：146/146 PASS；其中自动 OTA
-  编排专项 18/18 PASS；
+- `python -m unittest discover -s tests -p 'test*.py'`：PASS；
 - `python MAKCM_ESP32s3_HID_Mouse_Right/tests/test_ota_receiver_protocol.py`：4/4 PASS；
 - `python tests/check_stick_fifo_boundaries.py`：PASS；
-- 左板 canonical IDF 5.5.5 build：PASS；
-- 右板 PlatformIO/Arduino-ESP32 2.0.16 build：PASS；
+- 左板原生 ESP-IDF 5.5.4 build：必须 PASS；
+- 右板原生 ESP-IDF 5.5.4 / Arduino-ESP32 3.3.10 build：必须 PASS；
 - Linux Secondary/Windows local `ai_secondary` Release build：历史外部 release 仅保留
   hash；当前源码/二进制不在本工作树，但已从明确外部路径独立重建；
 - Python `py_compile`：PASS。
 
-当前 generation 4 构建与签名产物（已实机 OTA）：
+当前 reviewed local controller entry SHA-256 为
+`21A20C5D32DDB2B964B635F45C653695157CA92372B8B2641D0548DEC3839DB8`。
 
-- 左板 IDF 5.5.5 app `makcm_left_idf.bin`：436064 bytes，SHA-256
-  `38EC597C0494311B445231AF5DE281D8C5DF2E3EF238D61F770C9290C3AA6117`；
-- 右板 application `firmware.bin`：457040 bytes，SHA-256
-  `E209C54920A59402B00F6978E33C9F68F0E36047514DE25FDD486BD2B0C6BACC`；
-- 左 `.mkota`：436256 bytes，SHA-256
-  `C28AF5E219A8EA05E8B08E8FB7777DBE57CF09FAFFBAB1B5EFCA46FCD1A2EED7`；
-- 右 `.mkota`：457232 bytes，SHA-256
-  `66F4781E11369094CDFA2552D47111A7AA7B0AAF3C3BDA4981B142AC7BA45A0B`；
-- 两包 manifest 均为 generation 4、peer range 3..4、signer key id
-  `3dd2425f94e65ad13275fe6d1e2603bd`，离线公钥验签 `signature_valid=true`；
-- 左板 Bootloader：22336 bytes，SHA-256
-  `1737438B4F1AD5F585FD47B0CF7046F021CFABACE5C6962F1BCC4527668BDB5F`；
-- 左板 partition table：3072 bytes，SHA-256
-  `7B0775212028D27583C95F6FDED9232211BA8A8397DBA5ED05689D04C8C322D8`；
-- 左板 `ota_data_initial.bin`：8192 bytes，SHA-256
-  `7D2C7AC4888BFD75CD5F56E8D61F69595121183AFC81556C876732FD3782C62F`；
-- 当前本地公钥信任锚 `common/ota_trust_anchor.local.inc`：SHA-256
-  `175B59B2031A5EDCC3CFC13D3CF0809E512DFE300F193FEF9745B5CFCAA3BFE8`；构建已使用
-  `MAKCM_OTA_TRUST_ANCHOR_CONFIGURED=1`，文件只含公钥，不含私钥；
-- 当前 reviewed local controller entry：SHA-256
-  `21A20C5D32DDB2B964B635F45C653695157CA92372B8B2641D0548DEC3839DB8`。
-
-2026-08-04 审计修复后的**未刷入/未签名新源码构建**（不能冒充当前板上 generation 4）：
-
-- 左板 `makcm_left_idf.bin`：416656 bytes，SHA-256
-  `B8B384B0F2E82A01BB4B09629AD4AF82813058F6258E5B69E28FE9253E69F1E9`；IDF 5.5.5
-  完整构建 PASS，最小 OTA 槽剩余 78%；
 - 外部 `C:\Users\li\ai_receiver\secondary\build\Release\ai_secondary.exe`：456704 bytes，
   SHA-256 `BF07F1192ADCFE179A331F9A8729CE341EC40B5213A907ECE4F9BDDE06501CF8`；Release
   `ai_secondary` target 构建 PASS。该外部树当前没有注册 CTest；已有 test executable
   可运行，但 `ALL_BUILD` 不能作为本次 PASS 证据：`ControllerFreshnessTest` 仍引用已删除的
   `ControlOutput::soft_active`，`ai_receiver/bench_infer` 还缺 `GpuYoloPostprocess` 链接符号。
   这两项不由本次 status-line 容量修改引入，也未越界代修；
-- 该新 wire schema 为 v2，增加 `game_cal=0` 和 `decode=`；host parser 同时严格接受旧
+- 新 wire schema 为 v2，增加 `game_cal=0` 和 `decode=`；host parser 同时严格接受旧
   v1/新 v2，DS-04 harness 及
-  fixture 已同步。只有把它作为下一 generation 签名 OTA 部署并重做只读/barrier/数据面
-  门禁后，才能替代上面的 generation 4 实机证据。
+  fixture 已同步。部署后必须重做只读/barrier/数据面门禁。
 
-generation 3→4 实机事务 `4208040401` 已通过 Linux USB2 完成 right→left prepare、
-right→left activate、right→left confirm，`pair_health_confirmed=true`；确认后左板为
-`active_generation=4/target_generation=0/state=Idle`。接回 `4131:3519` 后：
+现有 direct-stick 硬件验收记录：
 
 - Windows XInput 9214/9214 次读取成功，右摇杆达到 `-32768..32767`，左右扳机均达到
   255，A 键 `0x1000` 被观测；
@@ -579,11 +498,6 @@ right→left activate、right→left confirm，`pair_health_confirmed=true`；�
   `/home/li/.local/state/makcm-ota/gen4-ds03-readonly.json`，SHA-256
   `53E2DEACA360F388806736BC57A9E61AF13E3CF17CDAB4AB52136AD074A40473`；工作区副本为
   `diagnostics/ds03_4131/gen4_ds03_readonly_20260804.json`，hash 相同；
-- 自动更新器实机零写续跑审计已固化为
-  `diagnostics/ota/gen4_pair_update_noop_20260804.json`，SHA-256
-  `9F0758497EB6F4DFA2D5CD0AAF588299758105294388065A0B0AE09B727B3EF5`；事务
-  `1624154591` 的事件中没有 `prepared/activated/confirmed` 写阶段事件。
-
 历史硬件/外部产物（不作为当前待刷产物）：
 
 - 已替代的 12 KiB control-stack + stack-watermark left `makcm_left_idf.bin`：338928 bytes，
@@ -604,9 +518,6 @@ right→left activate、right→left confirm，`pair_health_confirmed=true`；�
 - 审计修复源码已构建但尚未刷入；下一 generation OTA 后必须重新测量控制任务最低余栈
   （status buffer 从 640 增至 1024）、完整 status、barrier 双向互斥及高负载 USB cadence，
   不能用离线构建声称新的 task-mutex/实时路径已实机 PASS；
-- 自动 updater 的完整三阶段状态机已由专项测试覆盖，真实副机已通过目标版本零写续跑；
-  下一次真实新 generation 发布继续使用同一入口，并保留 transaction journal/audit 作为
-  非模拟 E2E 证据；不得退回日常 BOOT/ROM 刷写；
 - 当前副机未安装 `ai-secondary.service`（systemd `LoadState=not-found`），且实测时
   `/dev/ttyACM0` 无 holder。若恢复常驻 Secondary，必须先安装/启用受管 system unit，或在
   更新前人工正常退出并确认 fd 释放；不得让 updater 猜 PID 或 `kill -9`；

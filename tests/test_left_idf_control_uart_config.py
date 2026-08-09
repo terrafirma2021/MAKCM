@@ -101,6 +101,40 @@ class LeftIdfControlUartConfigTest(unittest.TestCase):
             handle.index("if (byte == kSpeedSwitch[switch_index_])"),
         )
 
+    def test_ota_maintenance_drains_control_uart_without_per_chunk_delay(
+        self,
+    ) -> None:
+        source = (
+            IDF_ROOT / "components" / "makcm_core" / "secondary.cpp"
+        ).read_text(encoding="utf-8")
+        task = source[source.index("void Secondary::task()") :]
+        task = task[: task.index("bool Secondary::setOtaMaintenance")]
+
+        # Keep the idle read blocking for a real 100 Hz FreeRTOS tick, while
+        # preserving the established byte handler and stack telemetry path.
+        self.assertRegex(
+            task,
+            r"uart_read_bytes\(config_\.port, buffer, sizeof\(buffer\),\s*"
+            r"pdMS_TO_TICKS\(10\)\)",
+        )
+        handler = "for (int i = 0; i < count; ++i) handleByte(buffer[i]);"
+        stack_update = "updateMinimumFreeTaskStackBytes();"
+        maintenance_gate = (
+            "if (!ota_maintenance_.load(std::memory_order_acquire))\n"
+            "                vTaskDelay(1);"
+        )
+        self.assertIn(handler, task)
+        self.assertIn(maintenance_gate, task)
+        self.assertLess(
+            task.index(handler),
+            task.index(stack_update, task.index(handler)),
+        )
+        self.assertLess(
+            task.index(stack_update, task.index(handler)),
+            task.index(maintenance_gate),
+        )
+        self.assertEqual(task.count("vTaskDelay(1);"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

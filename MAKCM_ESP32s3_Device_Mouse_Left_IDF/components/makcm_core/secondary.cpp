@@ -239,8 +239,11 @@ void Secondary::task() {
         if (count > 0) {
             for (int i = 0; i < count; ++i) handleByte(buffer[i]);
             updateMinimumFreeTaskStackBytes();
-            // Bound CPU residency if bytes are continuously available.
-            vTaskDelay(1);
+            // Bound CPU residency during normal control/HID traffic.  OTA
+            // maintenance must drain the UART ring continuously so a large
+            // transfer does not pay one scheduler tick per 256-byte read.
+            if (!ota_maintenance_.load(std::memory_order_acquire))
+                vTaskDelay(1);
         }
         if (stream_enabled_ && stream_period_ms_ != 0) {
             const uint32_t now = nowMs();
